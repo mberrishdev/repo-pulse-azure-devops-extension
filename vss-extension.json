@@ -1,10 +1,10 @@
 {
   "manifestVersion": 1,
-  "id": "repopulse-test",
+  "id": "repo-pulse",
   "name": "RepoPulse Demo",
-  "publisher": "mydevopstools",
-  "version": "1.0.80",
-  "description": "A custom build/release task for Azure DevOps",
+  "publisher": "repopulsepublisher",
+  "version": "0.0.1",
+  "description": "A modern Azure DevOps extension built with React and TypeScript that provides enhanced repository and pull request management capabilities.",
   "public": false,
   "categories": ["Azure Repos"],
   "targets": [
