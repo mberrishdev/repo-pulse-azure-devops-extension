@@ -1,0 +1,43 @@
+{
+  "manifestVersion": 1,
+  "id": "repopulse-test",
+  "name": "RepoPulse Demo",
+  "publisher": "mydevopstools",
+  "version": "1.0.80",
+  "description": "A custom build/release task for Azure DevOps",
+  "public": false,
+  "categories": ["Azure Repos"],
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "demands": ["api-version/3.0"],
+  "scopes": [
+    "vso.code_full"
+  ],
+  "icons": {
+    "default": "static/images/logo.png"
+  },
+  "contributions": [
+    {
+      "id": "home-page",
+      "type": "ms.vss-web.hub",
+      "targets": ["ms.vss-code-web.code-hub-group"],
+      "properties": {
+        "name": "Repo Pulse",
+        "uri": "dist/home/home.html"
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "dist",
+      "addressable": true
+    },
+    {
+      "path": "static",
+      "addressable": true
+    }
+  ]
+}
