@@ -2,7 +2,7 @@
 
 A modern Azure DevOps extension built with React and TypeScript that provides enhanced repository and pull request management capabilities.
 
-## 🚀 Features
+## Features
 
 ### Repository Management
 - **Repository Overview**: View all repositories in your Azure DevOps project
@@ -23,7 +23,7 @@ A modern Azure DevOps extension built with React and TypeScript that provides en
 - **Toast Notifications**: Success and error messages using Azure DevOps native notifications
 - **Responsive Design**: Works seamlessly across different screen sizes
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 - Azure DevOps organization with appropriate permissions
@@ -57,7 +57,7 @@ A modern Azure DevOps extension built with React and TypeScript that provides en
    - Navigate to Organization Settings → Extensions
    - Upload the generated `.vsix` file
 
-## 🔧 Configuration
+## Configuration
 
 ### Extension Manifest
 The extension is configured through `vss-extension.json`:
@@ -83,7 +83,7 @@ The extension requires the following permissions in your `vss-extension.json`:
 ]
 ```
 
-## 🎯 Usage
+## Usage
 
 ### Viewing Repositories
 1. Navigate to your Azure DevOps project
@@ -104,7 +104,7 @@ The extension requires the following permissions in your `vss-extension.json`:
 - Opens the new pull request in a new tab
 - Shows success/error notifications
 
-## 🛠️ Development
+##  Development
 
 ### Tech Stack
 - **Frontend**: React with TypeScript
@@ -156,7 +156,7 @@ npm run build:prod
 tfx extension create --manifest-globs vss-extension.json
 ```
 
-## 🔍 API Usage
+## API Usage
 
 ### Repository Operations
 ```typescript
@@ -182,7 +182,7 @@ const pullRequest = await gitClient.createPullRequest({
 }, repositoryId);
 ```
 
-## 🚨 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -204,11 +204,11 @@ const pullRequest = await gitClient.createPullRequest({
 ### CORS Issues
 The extension uses Azure DevOps Extension API to avoid CORS issues. Direct `fetch` calls to Azure DevOps APIs will be blocked.
 
-## 📝 License
+## License
 
 This project is provided as-is for educational and development purposes.
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
