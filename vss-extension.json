@@ -1,9 +1,9 @@
 {
   "manifestVersion": 1,
   "id": "repo-pulse",
-  "name": "RepoPulse Demo",
-  "publisher": "repopulsepublisher",
-  "version": "0.0.1",
+  "name": "Repo Pulse",
+  "publisher": "mberrish",
+  "version": "0.0.2",
   "description": "A modern Azure DevOps extension built with React and TypeScript that provides enhanced repository and pull request management capabilities.",
   "public": false,
   "categories": ["Azure Repos"],
