@@ -3,7 +3,7 @@
   "id": "repo-pulse",
   "name": "Repo Pulse",
   "publisher": "mberrish",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "description": "A modern Azure DevOps extension built with React and TypeScript that provides enhanced repository and pull request management capabilities.",
   "public": false,
   "categories": ["Azure Repos"],
