@@ -143,6 +143,27 @@ export class HomePage extends React.Component<object, HomePageState> {
   async loadRepositories() {
     try {
       const webContext = SDK.getWebContext();
+      
+      // Check if project context is available
+      if (!webContext.project?.id) {
+        console.error('No project context available for repository loading');
+        await this.showToast("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.", "error");
+        this.setState({
+          repos: [],
+          loading: false,
+          error: "No project context available",
+          permissionStatus: {
+            ...this.state.permissionStatus,
+            hasRepoAccess: false,
+            permissionMessages: [
+              ...this.state.permissionStatus.permissionMessages,
+              "❌ Repository Access Failed: No project context available"
+            ],
+          },
+        });
+        return;
+      }
+      
       const projectId = webContext.project.id;
       const gitClient = getClient(GitRestClient);
 
@@ -208,6 +229,26 @@ export class HomePage extends React.Component<object, HomePageState> {
   async loadPullRequests() {
     try {
       const webContext = SDK.getWebContext();
+      
+      // Check if project context is available
+      if (!webContext.project?.id) {
+        console.error('No project context available for pull request loading');
+        await this.showToast("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.", "error");
+        this.setState({
+          pullRequests: [],
+          groupedPullRequests: {},
+          permissionStatus: {
+            ...this.state.permissionStatus,
+            hasPRAccess: false,
+            permissionMessages: [
+              ...this.state.permissionStatus.permissionMessages,
+              "❌ Pull Request Access Failed: No project context available"
+            ],
+          },
+        });
+        return;
+      }
+      
       const projectId = webContext.project.id;
       const gitClient = getClient(GitRestClient);
 
