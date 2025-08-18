@@ -24,7 +24,16 @@ interface HomePageState {
   groupedPullRequests: Record<string, GitPullRequest[]>;
 }
 
+interface HomePageConfig {
+  azureDevOpsBaseUrl: string;
+}
+
 export class HomePage extends React.Component<object, HomePageState> {
+  private config: HomePageConfig = {
+    //azureDevOpsBaseUrl: "https://dev.azure.com"
+    azureDevOpsBaseUrl: "https://dev.azure.com"
+  };
+
   constructor(props: object) {
     super(props);
     this.state = {
@@ -164,7 +173,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private openRepository = (repo: GitRepository) => {
     const webContext = SDK.getWebContext();
-    const repoUrl = `https://dev.azure.com/${webContext.project.name}/_git/${repo.name}`;
+    const repoUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${repo.name}`;
     window.open(repoUrl, '_blank');
   };
 
@@ -214,7 +223,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       }, repo.id);
 
       if (pullRequest) {
-        const prUrl = `https://dev.azure.com/${webContext.project.name}/_git/${repo.name}/pullrequest/${pullRequest.pullRequestId}`;
+        const prUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${repo.name}/pullrequest/${pullRequest.pullRequestId}`;
         window.open(prUrl, '_blank');
         await this.showToast("Pull request created successfully!", "success");
       }
@@ -478,7 +487,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                           }}
                           onClick={() => {
                             const webContext = SDK.getWebContext();
-                            const prUrl = `https://dev.azure.com/${webContext.project.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                            const prUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
                             window.open(prUrl, '_blank');
                           }}
                           >
