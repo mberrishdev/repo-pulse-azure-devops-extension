@@ -122,6 +122,12 @@ export class HomePage extends React.Component<object, HomePageState> {
       // Get pull requests for all repositories
       const allPullRequests: GitPullRequest[] = [];
       for (const repo of repos || []) {
+
+        if (!repo || !repo.id) {
+          console.warn('Skipping repository without valid ID:', repo);
+          continue;
+        }
+        
         try {
           // Use safe search criteria to avoid SQL exceptions
           const pullRequests = await gitClient.getPullRequests(repo.id, {
@@ -143,8 +149,13 @@ export class HomePage extends React.Component<object, HomePageState> {
           }
         } catch (error) {
           console.warn(
-            `Failed to load pull requests for repo ${repo.name}:`,
+            `Failed to load pull requests for repo ${repo.name || 'Unknown'}:`,
             error
+          );
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          await this.showToast(
+            `Failed to load pull requests for ${repo.name || 'repository'}: ${errorMessage}`,
+            "warning"
           );
           // Continue with other repositories even if one fails
         }
@@ -159,6 +170,11 @@ export class HomePage extends React.Component<object, HomePageState> {
       });
     } catch (error: unknown) {
       console.error("Failed to load pull requests:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await this.showToast(
+        `Failed to load pull requests: ${errorMessage}`,
+        "error"
+      );
       this.setState({
         pullRequests: [],
         groupedPullRequests: {},
