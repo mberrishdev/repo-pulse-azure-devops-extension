@@ -3,9 +3,9 @@
   "id": "repo-pulse",
   "name": "Repo Pulse",
   "publisher": "mberrishdev",
-  "version": "0.0.0",
+  "version": "0.0.4",
   "description": "A modern Azure DevOps extension built with React and TypeScript that provides enhanced repository and pull request management capabilities.",
-  "public": false,
+  "public": true,
   "categories": ["Azure Repos"],
   "targets": [
     {
@@ -13,11 +13,14 @@
     }
   ],
   "demands": ["api-version/3.0"],
-  "scopes": [
-    "vso.code_full"
-  ],
+  "scopes": ["vso.code_full"],
   "icons": {
     "default": "static/images/logo.png"
+  },
+  "content": {
+    "details": {
+      "path": "overview.md"
+    }
   },
   "contributions": [
     {
@@ -37,6 +40,10 @@
     },
     {
       "path": "static",
+      "addressable": true
+    },
+    {
+      "path": "overview.md",
       "addressable": true
     }
   ]
