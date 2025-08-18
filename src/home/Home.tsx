@@ -26,6 +26,11 @@ interface HomePageState {
   error?: string;
   selectedTabId: string;
   groupedPullRequests: Record<string, GitPullRequest[]>;
+  permissionStatus: {
+    hasRepoAccess: boolean | null;
+    hasPRAccess: boolean | null;
+    permissionMessages: string[];
+  };
 }
 
 interface HomePageConfig {
@@ -38,6 +43,7 @@ export class HomePage extends React.Component<object, HomePageState> {
   };
 
   private CORE_AREA_ID = "79134c72-4a58-4b42-976c-04e7115f32bf";
+  private GIT_REPOSITORIES_SECURITY_NAMESPACE = "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87";
 
   public async getOrganizationBaseUrl(): Promise<string> {
     const loc = await SDK.getService<ILocationService>(
@@ -54,6 +60,11 @@ export class HomePage extends React.Component<object, HomePageState> {
       loading: true,
       selectedTabId: "repositories",
       groupedPullRequests: {},
+      permissionStatus: {
+        hasRepoAccess: null,
+        hasPRAccess: null,
+        permissionMessages: [],
+      },
     };
   }
 
@@ -61,9 +72,53 @@ export class HomePage extends React.Component<object, HomePageState> {
     SDK.init();
     SDK.ready().then(async () => {
       await this.initializeConfig();
+      await this.checkPermissions();
       this.loadRepositories();
       this.loadPullRequests();
     });
+  }
+
+  private async checkPermissions() {
+    const messages: string[] = [];
+    
+    try {
+      // Check if user can access Azure DevOps project
+      const webContext = SDK.getWebContext();
+      if (!webContext.project?.id) {
+        messages.push("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.");
+        await this.showToast("Permission Check: No project context available", "error");
+        return;
+      }
+
+      // Check basic project access
+      messages.push(`✅ Project Access: Connected to project "${webContext.project.name}"`);
+      
+      // Show info about required permissions
+      messages.push(`ℹ️  Required Permissions: This extension needs access to Git Repositories security namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE})`);
+      messages.push("ℹ️  Checking repository and pull request access...");
+
+      this.setState({
+        permissionStatus: {
+          ...this.state.permissionStatus,
+          permissionMessages: messages,
+        },
+      });
+
+      await this.showToast("🔍 Checking Azure DevOps permissions...", "info");
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      messages.push(`❌ Permission Check Failed: ${errorMessage}`);
+      
+      this.setState({
+        permissionStatus: {
+          ...this.state.permissionStatus,
+          permissionMessages: messages,
+        },
+      });
+      
+      await this.showToast("❌ Permission check failed during initialization", "error");
+    }
   }
 
   private async initializeConfig() {
@@ -94,19 +149,59 @@ export class HomePage extends React.Component<object, HomePageState> {
       // Use the REST client to get repositories (no fetch, no CORS issue)
       const repos = await gitClient.getRepositories(projectId);
 
+      // Update permission status for successful repository access
+      const updatedMessages = [
+        ...this.state.permissionStatus.permissionMessages,
+        `✅ Repository Access: Successfully loaded ${repos?.length || 0} repositories`
+      ];
+
       this.setState({
         repos: repos || [],
         loading: false,
+        permissionStatus: {
+          ...this.state.permissionStatus,
+          hasRepoAccess: true,
+          permissionMessages: updatedMessages,
+        },
       });
+
+      await this.showToast(`✅ Repository permissions verified! Found ${repos?.length || 0} repositories.`, "success");
     } catch (error: unknown) {
       let message = "Failed to load repositories";
+      let isPermissionError = false;
+      
       if (error instanceof Error) {
         message = error.message;
+        
+        // Check for permission-related errors
+        if (message.includes("403") || message.includes("Forbidden") || 
+            message.includes("unauthorized") || message.includes("permission") ||
+            message.includes("access denied") || message.includes("TF401028")) {
+          isPermissionError = true;
+          message = `Access Denied: You don't have permission to read repositories. Required permission: 'GenericRead' in Git Repositories namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE})`;
+        }
       }
+
+      const updatedMessages = [
+        ...this.state.permissionStatus.permissionMessages,
+        `❌ Repository Access Failed: ${message}`
+      ];
+
       this.setState({
         error: message,
         loading: false,
+        permissionStatus: {
+          ...this.state.permissionStatus,
+          hasRepoAccess: false,
+          permissionMessages: updatedMessages,
+        },
       });
+
+      if (isPermissionError) {
+        await this.showToast("❌ Permission Error: Cannot read repositories. Contact your Azure DevOps administrator to grant 'Repository Read' permissions.", "error");
+      } else {
+        await this.showToast(`❌ Failed to load repositories: ${message}`, "error");
+      }
     }
   }
 
@@ -164,21 +259,59 @@ export class HomePage extends React.Component<object, HomePageState> {
       // Group pull requests by repository
       const groupedPullRequests = this.groupPullRequests(allPullRequests);
 
+      // Update permission status for successful pull request access
+      const updatedMessages = [
+        ...this.state.permissionStatus.permissionMessages,
+        `✅ Pull Request Access: Successfully loaded ${allPullRequests.length} pull requests from ${(repos || []).length} repositories`
+      ];
+
       this.setState({
         pullRequests: allPullRequests,
         groupedPullRequests,
+        permissionStatus: {
+          ...this.state.permissionStatus,
+          hasPRAccess: true,
+          permissionMessages: updatedMessages,
+        },
       });
+
+      if (allPullRequests.length > 0) {
+        await this.showToast(`✅ Pull Request permissions verified! Found ${allPullRequests.length} active pull requests.`, "success");
+      } else {
+        await this.showToast("✅ Pull Request access verified, but no active pull requests found.", "info");
+      }
     } catch (error: unknown) {
       console.error("Failed to load pull requests:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      await this.showToast(
-        `Failed to load pull requests: ${errorMessage}`,
-        "error"
-      );
+      let isPermissionError = false;
+      
+      // Check for permission-related errors
+      if (errorMessage.includes("403") || errorMessage.includes("Forbidden") || 
+          errorMessage.includes("unauthorized") || errorMessage.includes("permission") ||
+          errorMessage.includes("access denied") || errorMessage.includes("TF401028")) {
+        isPermissionError = true;
+      }
+
+      const updatedMessages = [
+        ...this.state.permissionStatus.permissionMessages,
+        `❌ Pull Request Access Failed: ${errorMessage}`
+      ];
+
       this.setState({
         pullRequests: [],
         groupedPullRequests: {},
+        permissionStatus: {
+          ...this.state.permissionStatus,
+          hasPRAccess: false,
+          permissionMessages: updatedMessages,
+        },
       });
+
+      if (isPermissionError) {
+        await this.showToast(`❌ Permission Error: Cannot read pull requests. Required permission: 'PullRequestContribute' in Git Repositories namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE}). Contact your Azure DevOps administrator.`, "error");
+      } else {
+        await this.showToast(`❌ Failed to load pull requests: ${errorMessage}`, "error");
+      }
     }
   }
 
@@ -323,7 +456,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private showToast = async (
     message: string,
-    type: "success" | "warning" | "error"
+    type: "success" | "warning" | "error" | "info"
   ) => {
     try {
       const messagesService = await SDK.getService<IGlobalMessagesService>(
@@ -349,6 +482,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       error,
       selectedTabId,
       groupedPullRequests,
+      permissionStatus,
     } = this.state;
 
     return (
@@ -377,6 +511,79 @@ export class HomePage extends React.Component<object, HomePageState> {
             Repo Pulse
           </h1>
         </div>
+
+        {/* Permission Status Panel */}
+        {permissionStatus.permissionMessages.length > 0 && (
+          <div style={{
+            margin: "16px 24px",
+            padding: "16px",
+            backgroundColor: "white",
+            border: "1px solid #e1e1e1",
+            borderRadius: "6px",
+            fontSize: "12px",
+            fontFamily: "monospace"
+          }}>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              marginBottom: "12px",
+              fontSize: "14px",
+              fontWeight: "600",
+              color: "#323130"
+            }}>
+              <Icon iconName="SecurityGroup" style={{ marginRight: "8px", color: "#0078d4" }} />
+              Permission Status - Git Repositories Namespace ({this.GIT_REPOSITORIES_SECURITY_NAMESPACE})
+            </div>
+            
+            <div style={{
+              display: "grid",
+              gap: "6px",
+              maxHeight: "120px",
+              overflowY: "auto",
+              padding: "8px",
+              backgroundColor: "#f8f9fa",
+              borderRadius: "4px"
+            }}>
+              {permissionStatus.permissionMessages.map((message, index) => (
+                <div key={index} style={{
+                  color: message.startsWith("✅") ? "#107c10" : 
+                         message.startsWith("❌") ? "#d13438" : 
+                         message.startsWith("ℹ️") ? "#0078d4" : "#666",
+                  lineHeight: "1.4"
+                }}>
+                  {message}
+                </div>
+              ))}
+            </div>
+
+            {/* Quick Permission Summary */}
+            <div style={{
+              marginTop: "12px",
+              padding: "8px",
+              backgroundColor: "#f3f2f1",
+              borderRadius: "4px",
+              display: "flex",
+              gap: "16px",
+              alignItems: "center",
+              fontSize: "12px"
+            }}>
+              <span style={{
+                color: permissionStatus.hasRepoAccess === true ? "#107c10" : 
+                       permissionStatus.hasRepoAccess === false ? "#d13438" : "#666"
+              }}>
+                {permissionStatus.hasRepoAccess === true ? "✅" : 
+                 permissionStatus.hasRepoAccess === false ? "❌" : "⏳"} Repository Access
+              </span>
+              <span style={{
+                color: permissionStatus.hasPRAccess === true ? "#107c10" : 
+                       permissionStatus.hasPRAccess === false ? "#d13438" : "#666"
+              }}>
+                {permissionStatus.hasPRAccess === true ? "✅" : 
+                 permissionStatus.hasPRAccess === false ? "❌" : "⏳"} Pull Request Access
+              </span>
+            </div>
+          </div>
+        )}
 
         <div style={{ padding: "24px" }}>
           {/* Tab Navigation */}
