@@ -3,21 +3,47 @@ import { Button } from "azure-devops-ui/Button";
 import { Icon } from "azure-devops-ui/Icon";
 import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
-import { getClient, ILocationService } from "azure-devops-extension-api";
-import {
-  GitRestClient,
-  GitRepository,
-  GitPullRequest,
-  PullRequestStatus,
-  PullRequestTimeRangeType,
-  PullRequestMergeFailureType,
-  PullRequestAsyncStatus,
-} from "azure-devops-extension-api/Git";
+import { ILocationService } from "azure-devops-extension-api";
 import {
   CommonServiceIds,
   IGlobalMessagesService,
   IToast,
 } from "azure-devops-extension-api";
+
+// Define interfaces for REST API responses
+interface GitRepository {
+  id: string;
+  name: string;
+  defaultBranch?: string;
+  size?: number;
+  webUrl?: string;
+  project?: {
+    id: string;
+    name: string;
+  };
+}
+
+interface GitPullRequest {
+  pullRequestId: number;
+  title?: string;
+  description?: string;
+  sourceRefName?: string;
+  targetRefName?: string;
+  status?: number;
+  isDraft?: boolean;
+  repository?: GitRepository;
+  createdBy?: {
+    displayName: string;
+    id: string;
+  };
+  creationDate?: string;
+}
+
+interface SecurityPermission {
+  namespaceId: string;
+  token: string;
+  acesDictionary: Record<string, any>;
+}
 
 interface HomePageState {
   repos: GitRepository[];
@@ -31,6 +57,8 @@ interface HomePageState {
     hasPRAccess: boolean | null;
     permissionMessages: string[];
   };
+  showProjectInput: boolean;
+  manualProjectName: string;
 }
 
 interface HomePageConfig {
@@ -45,6 +73,7 @@ export class HomePage extends React.Component<object, HomePageState> {
   private CORE_AREA_ID = "79134c72-4a58-4b42-976c-04e7115f32bf";
   private GIT_REPOSITORIES_SECURITY_NAMESPACE =
     "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87";
+  private accessToken: string = "";
 
   public async getOrganizationBaseUrl(): Promise<string> {
     const loc = await SDK.getService<ILocationService>(
@@ -52,6 +81,134 @@ export class HomePage extends React.Component<object, HomePageState> {
     );
     return await loc.getResourceAreaLocation(this.CORE_AREA_ID);
   }
+
+  /**
+   * Helper method to make authenticated REST API calls
+   */
+  private async getJson<T>(url: string): Promise<T> {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${this.accessToken}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Helper method to make authenticated REST API POST calls
+   */
+  private async postJson<T>(url: string, data: any): Promise<T> {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.accessToken}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Helper method to extract project information from URL when webContext is empty
+   */
+  private getProjectFromUrl(): { id?: string; name?: string } | null {
+    try {
+      const url = window.location.href;
+      console.log("🔍 DEBUG - Current URL:", url);
+      
+      // Try to extract project name from various URL patterns
+      // Pattern 1: https://server/collection/project/_git/repo
+      // Pattern 2: https://server/collection/project/_apps/hub/...
+      const patterns = [
+        /\/([^\/]+)\/([^\/]+)\/_git/,
+        /\/([^\/]+)\/([^\/]+)\/_apps/,
+        /\/([^\/]+)\/([^\/]+)\/_build/,
+        /\/([^\/]+)\/([^\/]+)\/_work/,
+        /\/([^\/]+)\/([^\/]+)\/$/
+      ];
+
+      for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match && match[2]) {
+          const projectName = decodeURIComponent(match[2]);
+          console.log("🔍 DEBUG - Extracted project name from URL:", projectName);
+          return { name: projectName };
+        }
+      }
+
+      console.log("❌ DEBUG - Could not extract project from URL");
+      return null;
+    } catch (error) {
+      console.error("❌ DEBUG - Error extracting project from URL:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Get project information with fallback hierarchy:
+   * 1. webContext.project
+   * 2. URL extraction
+   * 3. Manual user input
+   */
+  private getProjectInfo(): { id?: string; name?: string } | null {
+    const webContext = SDK.getWebContext();
+
+    // Try webContext first
+    if (webContext.project?.id) {
+      console.log("🔍 DEBUG - Using webContext project:", webContext.project.name);
+      return webContext.project;
+    }
+
+    // Try URL extraction
+    const urlProject = this.getProjectFromUrl();
+    if (urlProject?.name) {
+      console.log("🔍 DEBUG - Using URL extracted project:", urlProject.name);
+      return urlProject;
+    }
+
+    // Finally, check if user has provided manual input
+    if (this.state.manualProjectName.trim()) {
+      console.log("🔍 DEBUG - Using manually entered project:", this.state.manualProjectName.trim());
+      return { name: this.state.manualProjectName.trim() };
+    }
+
+    return null;
+  }
+
+  /**
+   * Handle manual project name submission
+   */
+  private handleProjectSubmit = async () => {
+    if (!this.state.manualProjectName.trim()) {
+      await this.showToast("Please enter a project name", "error");
+      return;
+    }
+
+    this.setState({ showProjectInput: false, loading: true });
+    await this.showToast("Connecting to project...", "info");
+    
+    // Retry the operations with the manual project name
+    await this.checkPermissionsViaRest();
+    this.loadRepositoriesViaRest();
+    this.loadPullRequestsViaRest();
+  };
 
   constructor(props: object) {
     super(props);
@@ -66,21 +223,35 @@ export class HomePage extends React.Component<object, HomePageState> {
         hasPRAccess: null,
         permissionMessages: [],
       },
+      showProjectInput: false,
+      manualProjectName: "",
     };
   }
 
   public async componentDidMount() {
-    await SDK.init({ applyTheme: true });
+    try {
+      await SDK.init({ applyTheme: true });
+      await SDK.ready();
 
-    await SDK.ready();
+      // Get access token for REST API calls
+      this.accessToken = await SDK.getAccessToken();
+      console.log("🔍 DEBUG - Access token obtained:", !!this.accessToken);
 
-    await this.initializeConfig();
-    await this.checkPermissions();
-    this.loadRepositories();
-    this.loadPullRequests();
+      await this.initializeConfig();
+      
+      // Wait a bit for the SDK to fully initialize context
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      await this.checkPermissionsViaRest();
+      this.loadRepositoriesViaRest();
+      this.loadPullRequestsViaRest();
+    } catch (error) {
+      console.error("❌ Extension initialization failed:", error);
+      await this.showToast("Failed to initialize extension", "error");
+    }
   }
 
-  private async checkPermissions() {
+  private async checkPermissionsViaRest() {
     const messages: string[] = [];
 
     try {
@@ -116,28 +287,77 @@ export class HomePage extends React.Component<object, HomePageState> {
         console.log("🔍 DEBUG - project.name:", webContext.project.name);
       }
 
-      if (!webContext.project?.id) {
-        console.error("❌ DEBUG: No project ID found!");
+      const projectInfo = this.getProjectInfo();
+      
+      if (!projectInfo?.name) {
+        console.error("❌ DEBUG: No project ID found in webContext and could not extract from URL!");
+        console.log("🔧 DEBUG: Enabling manual project input");
+        
         messages.push(
-          "❌ No project context available. Please ensure this extension is running within an Azure DevOps project."
+          "❌ No project context available. Extension may not be properly installed in project context."
         );
+        messages.push(
+          "🔧 Manual project entry enabled below. Please enter your project name."
+        );
+        
+        this.setState({
+          permissionStatus: {
+            ...this.state.permissionStatus,
+            permissionMessages: messages,
+          },
+          showProjectInput: true,
+          loading: false
+        });
+
         await this.showToast(
-          "Permission Check: No project context available",
-          "error"
+          "Please enter project name manually",
+          "info"
         );
         return;
       }
 
       // Check basic project access
       messages.push(
-        `✅ Project Access: Connected to project "${webContext.project.name}"`
+        `✅ Project Access: Connected to project "${projectInfo.name}"`
       );
 
-      // Show info about required permissions
-      messages.push(
-        `ℹ️  Required Permissions: This extension needs access to Git Repositories security namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE})`
-      );
-      messages.push("ℹ️  Checking repository and pull request access...");
+      // Check permissions via REST API instead of relying on shared data
+      try {
+        // Try to get repositories - this will test our basic Git access
+        const reposUrl = `${this.config.azureDevOpsBaseUrl}/${projectInfo.name}/_apis/git/repositories?api-version=7.1`;
+        console.log("🔍 DEBUG - Testing repository access with URL:", reposUrl);
+        
+        const reposResponse = await this.getJson<{ value: GitRepository[] }>(reposUrl);
+        const repoCount = reposResponse?.value?.length || 0;
+        
+        messages.push(`✅ Repository Access: Found ${repoCount} repositories via REST API`);
+        
+        // If we have repositories, test pull request access
+        if (repoCount > 0) {
+          const prUrl = `${this.config.azureDevOpsBaseUrl}/${projectInfo.name}/_apis/git/pullrequests?searchCriteria.status=active&api-version=7.1`;
+          console.log("🔍 DEBUG - Testing pull request access with URL:", prUrl);
+          
+          const prResponse = await this.getJson<{ value: GitPullRequest[] }>(prUrl);
+          const prCount = prResponse?.value?.length || 0;
+          
+          messages.push(`✅ Pull Request Access: Found ${prCount} active pull requests via REST API`);
+          messages.push(`ℹ️  REST API permissions verified for Git Repositories namespace`);
+        }
+
+      } catch (permError) {
+        const permErrorMessage = permError instanceof Error ? permError.message : String(permError);
+        console.error("❌ DEBUG: Permission check via REST failed:", permError);
+        
+        if (permErrorMessage.includes("403") || permErrorMessage.includes("Forbidden")) {
+          messages.push("❌ Permission Error: Access denied to Git repositories");
+          messages.push("🔧 Solution: Contact your Azure DevOps administrator to grant repository access");
+        } else if (permErrorMessage.includes("401") || permErrorMessage.includes("Unauthorized")) {
+          messages.push("❌ Authentication Error: Invalid or expired access token");
+          messages.push("🔧 Solution: Reload the extension or re-authenticate");
+        } else {
+          messages.push(`❌ API Access Failed: ${permErrorMessage}`);
+        }
+      }
 
       this.setState({
         permissionStatus: {
@@ -146,29 +366,14 @@ export class HomePage extends React.Component<object, HomePageState> {
         },
       });
 
-      await this.showToast("🔍 Checking Azure DevOps permissions...", "info");
+      await this.showToast("🔍 Checking Azure DevOps permissions via REST API...", "info");
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       console.error("❌ DEBUG: Permission check error:", error);
 
-      // Check for specific security namespace permission error
-      if (
-        errorMessage.includes("security namespace") &&
-        errorMessage.includes("No permissions found")
-      ) {
-        messages.push(
-          "❌ Security Permission Error: Extension lacks proper Azure DevOps permissions"
-        );
-        messages.push(
-          "🔧 Solution: Reinstall the extension or contact your Azure DevOps administrator"
-        );
-        messages.push(
-          "ℹ️  This error usually indicates missing scopes in the extension manifest"
-        );
-      } else {
-        messages.push(`❌ Permission Check Failed: ${errorMessage}`);
-      }
+      messages.push(`❌ Permission Check Failed: ${errorMessage}`);
+      messages.push("🔧 Solution: This extension requires access to Git repositories");
 
       this.setState({
         permissionStatus: {
@@ -203,28 +408,29 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
   }
 
-  async loadRepositories() {
+  async loadRepositoriesViaRest() {
     try {
       const webContext = SDK.getWebContext();
 
       // 🔍 DEBUG: Log webContext in loadRepositories
-      console.log("🔍 DEBUG loadRepositories - webContext:", webContext);
+      console.log("🔍 DEBUG loadRepositoriesViaRest - webContext:", webContext);
       console.log(
-        "🔍 DEBUG loadRepositories - webContext.project:",
+        "🔍 DEBUG loadRepositoriesViaRest - webContext.project:",
         webContext.project
       );
 
-      // Check if project context is available
-      if (!webContext.project?.id) {
+      const projectInfo = this.getProjectInfo();
+        
+      if (!projectInfo?.name) {
         console.error(
-          "❌ DEBUG loadRepositories: No project context available for repository loading"
+          "❌ DEBUG loadRepositoriesViaRest: No project context available for repository loading"
         );
         console.error(
-          "❌ DEBUG loadRepositories: webContext.project is:",
+          "❌ DEBUG loadRepositoriesViaRest: webContext.project is:",
           webContext.project
         );
         await this.showToast(
-          "❌ No project context available. Please ensure this extension is running within an Azure DevOps project.",
+          "❌ No project context available. Please enter project name manually.",
           "error"
         );
         this.setState({
@@ -239,26 +445,28 @@ export class HomePage extends React.Component<object, HomePageState> {
               "❌ Repository Access Failed: No project context available",
             ],
           },
+          showProjectInput: true
         });
         return;
       }
 
-      const projectId = webContext.project.id;
-      const gitClient = getClient(GitRestClient);
+      const projectName = projectInfo.name;
+      const reposUrl = `${this.config.azureDevOpsBaseUrl}/${projectName}/_apis/git/repositories?api-version=7.1`;
+      
+      console.log("🔍 DEBUG loadRepositoriesViaRest - URL:", reposUrl);
 
-      // Use the REST client to get repositories (no fetch, no CORS issue)
-      const repos = await gitClient.getRepositories(projectId);
+      // Use direct REST API call instead of SDK client
+      const response = await this.getJson<{ value: GitRepository[] }>(reposUrl);
+      const repos = response?.value || [];
 
       // Update permission status for successful repository access
       const updatedMessages = [
         ...this.state.permissionStatus.permissionMessages,
-        `✅ Repository Access: Successfully loaded ${
-          repos?.length || 0
-        } repositories`,
+        `✅ Repository Access: Successfully loaded ${repos.length} repositories via REST API`,
       ];
 
       this.setState({
-        repos: repos || [],
+        repos: repos,
         loading: false,
         permissionStatus: {
           ...this.state.permissionStatus,
@@ -268,9 +476,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       });
 
       await this.showToast(
-        `✅ Repository permissions verified! Found ${
-          repos?.length || 0
-        } repositories.`,
+        `✅ Repository permissions verified! Found ${repos.length} repositories.`,
         "success"
       );
     } catch (error: unknown) {
@@ -287,10 +493,10 @@ export class HomePage extends React.Component<object, HomePageState> {
           message.includes("unauthorized") ||
           message.includes("permission") ||
           message.includes("access denied") ||
-          message.includes("TF401028")
+          message.includes("401")
         ) {
           isPermissionError = true;
-          message = `Access Denied: You don't have permission to read repositories. Required permission: 'GenericRead' in Git Repositories namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE})`;
+          message = `Access Denied: You don't have permission to read repositories via REST API. Check your Azure DevOps permissions.`;
         }
       }
 
@@ -323,28 +529,29 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
   }
 
-  async loadPullRequests() {
+  async loadPullRequestsViaRest() {
     try {
       const webContext = SDK.getWebContext();
 
       // 🔍 DEBUG: Log webContext in loadPullRequests
-      console.log("🔍 DEBUG loadPullRequests - webContext:", webContext);
+      console.log("🔍 DEBUG loadPullRequestsViaRest - webContext:", webContext);
       console.log(
-        "🔍 DEBUG loadPullRequests - webContext.project:",
+        "🔍 DEBUG loadPullRequestsViaRest - webContext.project:",
         webContext.project
       );
 
-      // Check if project context is available
-      if (!webContext.project?.id) {
+      const projectInfo = this.getProjectInfo();
+        
+      if (!projectInfo?.name) {
         console.error(
-          "❌ DEBUG loadPullRequests: No project context available for pull request loading"
+          "❌ DEBUG loadPullRequestsViaRest: No project context available for pull request loading"
         );
         console.error(
-          "❌ DEBUG loadPullRequests: webContext.project is:",
+          "❌ DEBUG loadPullRequestsViaRest: webContext.project is:",
           webContext.project
         );
         await this.showToast(
-          "❌ No project context available. Please ensure this extension is running within an Azure DevOps project.",
+          "❌ No project context available. Please enter project name manually.",
           "error"
         );
         this.setState({
@@ -358,88 +565,34 @@ export class HomePage extends React.Component<object, HomePageState> {
               "❌ Pull Request Access Failed: No project context available",
             ],
           },
+          showProjectInput: true
         });
         return;
       }
 
-      const projectId = webContext.project.id;
-      console.log("🔍 DEBUG loadPullRequests - projectId:", projectId);
+      const projectName = projectInfo.name;
+      console.log("🔍 DEBUG loadPullRequestsViaRest - projectName:", projectName);
 
-      const gitClient = getClient(GitRestClient);
+      // Use direct REST API call to get all active pull requests across all repositories
+      const prUrl = `${this.config.azureDevOpsBaseUrl}/${projectName}/_apis/git/pullrequests?searchCriteria.status=active&api-version=7.1`;
+      console.log("🔍 DEBUG loadPullRequestsViaRest - URL:", prUrl);
+
+      const response = await this.getJson<{ value: GitPullRequest[] }>(prUrl);
+      const allPullRequests = response?.value || [];
+
+      console.log("🔍 DEBUG loadPullRequestsViaRest - Retrieved PRs:", allPullRequests);
       console.log(
-        "🔍 DEBUG loadPullRequests - gitClient created:",
-        !!gitClient
+        "🔍 DEBUG loadPullRequestsViaRest - PRs count:",
+        allPullRequests.length
       );
 
-      // Get all repositories first
-      console.log(
-        "🔍 DEBUG loadPullRequests - About to call getRepositories..."
-      );
-      const repos = await gitClient.getRepositories(projectId);
-      console.log("🔍 DEBUG loadPullRequests - Retrieved repos:", repos);
-      console.log(
-        "🔍 DEBUG loadPullRequests - Repos count:",
-        repos?.length || 0
-      );
-
-      // Get pull requests for all repositories
-      const allPullRequests: GitPullRequest[] = [];
-      for (const repo of repos || []) {
-        console.log("🔍 DEBUG loadPullRequests - Processing repo:", repo);
-        console.log("🔍 DEBUG loadPullRequests - Repo type:", typeof repo);
-        console.log("🔍 DEBUG loadPullRequests - Repo.id:", repo?.id);
-        console.log("🔍 DEBUG loadPullRequests - Repo.name:", repo?.name);
-
-        if (!repo || !repo.id) {
-          console.warn("⚠️  Skipping repository without valid ID:", repo);
-          continue;
-        }
-
-        try {
-          // Use safe search criteria to avoid SQL exceptions
-          const pullRequests = await gitClient.getPullRequests(repo.id, {
-            status: PullRequestStatus.Active,
-            includeLinks: false,
-            creatorId: null,
-            maxTime: new Date(Date.now() + 1000 * 365 * 24 * 60 * 60 * 1),
-            minTime: new Date(Date.now() - 1000 * 365 * 24 * 60 * 60),
-            queryTimeRangeType: PullRequestTimeRangeType.Created,
-            repositoryId: repo.id,
-            reviewerId: null,
-            sourceRefName: null,
-            sourceRepositoryId: null,
-            targetRefName: null,
-          });
-
-          if (pullRequests && pullRequests.length > 0) {
-            allPullRequests.push(...pullRequests);
-          }
-        } catch (error) {
-          console.warn(
-            `Failed to load pull requests for repo ${repo.name || "Unknown"}:`,
-            error
-          );
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          await this.showToast(
-            `Failed to load pull requests for ${
-              repo.name || "repository"
-            }: ${errorMessage}`,
-            "warning"
-          );
-          // Continue with other repositories even if one fails
-        }
-      }
-
-      // Group pull requests by repository
+      // Group pull requests by title
       const groupedPullRequests = this.groupPullRequests(allPullRequests);
 
       // Update permission status for successful pull request access
       const updatedMessages = [
         ...this.state.permissionStatus.permissionMessages,
-        `✅ Pull Request Access: Successfully loaded ${
-          allPullRequests.length
-        } pull requests from ${(repos || []).length} repositories`,
+        `✅ Pull Request Access: Successfully loaded ${allPullRequests.length} pull requests via REST API`,
       ];
 
       this.setState({
@@ -476,7 +629,7 @@ export class HomePage extends React.Component<object, HomePageState> {
         errorMessage.includes("unauthorized") ||
         errorMessage.includes("permission") ||
         errorMessage.includes("access denied") ||
-        errorMessage.includes("TF401028")
+        errorMessage.includes("401")
       ) {
         isPermissionError = true;
       }
@@ -498,7 +651,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       if (isPermissionError) {
         await this.showToast(
-          `❌ Permission Error: Cannot read pull requests. Required permission: 'PullRequestContribute' in Git Repositories namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE}). Contact your Azure DevOps administrator.`,
+          `❌ Permission Error: Cannot read pull requests via REST API. Contact your Azure DevOps administrator to grant access.`,
           "error"
         );
       } else {
@@ -558,8 +711,14 @@ export class HomePage extends React.Component<object, HomePageState> {
   };
 
   private openRepository = (repo: GitRepository) => {
-    const webContext = SDK.getWebContext();
-    const repoUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${repo.name}`;
+    const projectInfo = this.getProjectInfo();
+
+    if (!projectInfo?.name) {
+      console.error("Cannot open repository: No project context available");
+      return;
+    }
+
+    const repoUrl = `${this.config.azureDevOpsBaseUrl}/${projectInfo.name}/_git/${repo.name}`;
     window.open(repoUrl, "_blank");
   };
 
@@ -568,54 +727,31 @@ export class HomePage extends React.Component<object, HomePageState> {
     targetRefName?: string
   ) => {
     try {
-      const webContext = SDK.getWebContext();
-      const gitClient = getClient(GitRestClient);
+      const projectInfo = this.getProjectInfo();
+
+      if (!projectInfo?.name) {
+        await this.showToast("No project context available", "error");
+        return;
+      }
 
       const masterBranch = "master";
+      const projectName = projectInfo.name;
+      
+      // Create pull request using REST API
+      const createPrUrl = `${this.config.azureDevOpsBaseUrl}/${projectName}/_apis/git/repositories/${repo.id}/pullrequests?api-version=7.1`;
+      
+      const prData = {
+        sourceRefName: `refs/heads/${masterBranch}`,
+        targetRefName: `${targetRefName}`,
+        title: `Update ${targetRefName} from ${masterBranch}`,
+        description: `Automated PR to update ${targetRefName} with latest changes from ${masterBranch}`,
+        isDraft: false
+      };
 
-      const pullRequest = await gitClient.createPullRequest(
-        {
-          sourceRefName: `refs/heads/${masterBranch}`,
-          targetRefName: `${targetRefName}`,
-          title: `Update ${targetRefName} from ${masterBranch}`,
-          description: `Automated PR to update ${targetRefName} with latest changes from ${masterBranch}`,
-          isDraft: false,
-          supportsIterations: true,
-          _links: undefined,
-          artifactId: "",
-          autoCompleteSetBy: null,
-          closedBy: null,
-          closedDate: null,
-          codeReviewId: 0,
-          commits: [],
-          completionOptions: null,
-          completionQueueTime: null,
-          createdBy: null,
-          creationDate: null,
-          forkSource: null,
-          hasMultipleMergeBases: false,
-          labels: [],
-          lastMergeCommit: null,
-          lastMergeSourceCommit: null,
-          lastMergeTargetCommit: null,
-          mergeFailureMessage: "",
-          mergeFailureType: PullRequestMergeFailureType.None,
-          mergeId: "",
-          mergeOptions: null,
-          mergeStatus: PullRequestAsyncStatus.NotSet,
-          pullRequestId: 0,
-          remoteUrl: "",
-          repository: null,
-          reviewers: [],
-          status: PullRequestStatus.NotSet,
-          url: "",
-          workItemRefs: [],
-        },
-        repo.id
-      );
+      const pullRequest = await this.postJson<GitPullRequest>(createPrUrl, prData);
 
       if (pullRequest) {
-        const prUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${repo.name}/pullrequest/${pullRequest.pullRequestId}`;
+        const prUrl = `${this.config.azureDevOpsBaseUrl}/${projectName}/_git/${repo.name}/pullrequest/${pullRequest.pullRequestId}`;
         window.open(prUrl, "_blank");
         await this.showToast("Pull request created successfully!", "success");
       }
@@ -625,20 +761,25 @@ export class HomePage extends React.Component<object, HomePageState> {
       // Handle specific error cases
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("TF401179")) {
+      if (errorMessage.includes("TF401179") || errorMessage.includes("already exists")) {
         await this.showToast(
           `A pull request from master to ${targetRefName} already exists for ${repo.name}. Please check existing pull requests.`,
           "warning"
         );
-      } else if (errorMessage.includes("TF401028")) {
+      } else if (errorMessage.includes("TF401028") || errorMessage.includes("source") || errorMessage.includes("master")) {
         await this.showToast(
           `The source branch 'master' does not exist in ${repo.name}. Please ensure the master branch exists.`,
           "warning"
         );
-      } else if (errorMessage.includes("TF401027")) {
+      } else if (errorMessage.includes("TF401027") || errorMessage.includes("target")) {
         await this.showToast(
           `The target branch '${targetRefName}' does not exist in ${repo.name}. Please check the branch name.`,
           "warning"
+        );
+      } else if (errorMessage.includes("403") || errorMessage.includes("401")) {
+        await this.showToast(
+          `Permission denied: Cannot create pull request for ${repo.name}. Contact your Azure DevOps administrator.`,
+          "error"
         );
       } else {
         await this.showToast(
@@ -706,6 +847,76 @@ export class HomePage extends React.Component<object, HomePageState> {
             Repo Pulse
           </h1>
         </div>
+
+        {/* Manual Project Input Panel */}
+        {this.state.showProjectInput && (
+          <div
+            style={{
+              margin: "16px 24px",
+              padding: "20px",
+              backgroundColor: "#fff8dc",
+              border: "2px solid #ffd700",
+              borderRadius: "6px",
+              fontSize: "14px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                marginBottom: "12px",
+                fontSize: "16px",
+                fontWeight: "600",
+                color: "#b8860b",
+              }}
+            >
+              <Icon
+                iconName="Info"
+                style={{ marginRight: "8px", color: "#ffd700" }}
+              />
+              Manual Project Entry Required
+            </div>
+            
+            <p style={{ margin: "0 0 16px 0", color: "#666" }}>
+              The extension couldn't automatically detect your project context. This usually happens when:
+            </p>
+            <ul style={{ margin: "0 0 16px 0", paddingLeft: "20px", color: "#666" }}>
+              <li>Extension is not properly installed in project scope</li>
+              <li>Loading from gallery URL instead of project context</li>
+              <li>Running on Azure DevOps Server with limited context sharing</li>
+            </ul>
+            <p style={{ margin: "0 0 16px 0", color: "#666" }}>
+              <strong>Please enter your Azure DevOps project name manually:</strong>
+            </p>
+            
+            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Enter project name (e.g., MyProject)"
+                value={this.state.manualProjectName}
+                onChange={(e) => this.setState({ manualProjectName: e.target.value })}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    this.handleProjectSubmit();
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  border: "1px solid #ccc",
+                  borderRadius: "4px",
+                  fontSize: "14px"
+                }}
+              />
+              <Button
+                text="Connect"
+                primary={true}
+                onClick={this.handleProjectSubmit}
+                disabled={!this.state.manualProjectName.trim()}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Permission Status Panel */}
         {permissionStatus.permissionMessages.length > 0 && (
@@ -1120,9 +1331,12 @@ export class HomePage extends React.Component<object, HomePageState> {
                                 e.currentTarget.style.borderColor = "#e1e1e1";
                               }}
                               onClick={() => {
-                                const webContext = SDK.getWebContext();
-                                const prUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
-                                window.open(prUrl, "_blank");
+                                const projectInfo = this.getProjectInfo();
+
+                                if (projectInfo?.name) {
+                                  const prUrl = `${this.config.azureDevOpsBaseUrl}/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                                  window.open(prUrl, "_blank");
+                                }
                               }}
                             >
                               <div
