@@ -84,7 +84,31 @@ export class HomePage extends React.Component<object, HomePageState> {
     try {
       // Check if user can access Azure DevOps project
       const webContext = SDK.getWebContext();
+      
+      // 🔍 DEBUG: Log complete webContext structure
+      console.log("🔍 DEBUG - Complete webContext:", webContext);
+      console.log("🔍 DEBUG - webContext type:", typeof webContext);
+      console.log("🔍 DEBUG - webContext keys:", Object.keys(webContext || {}));
+      
+      // Check if SDK is properly initialized
+      if (!webContext) {
+        console.error("❌ DEBUG: webContext is null/undefined - SDK may not be properly initialized");
+        messages.push("❌ Azure DevOps SDK not properly initialized. Please reload the page.");
+        await this.showToast("SDK initialization failed", "error");
+        return;
+      }
+      
+      // 🔍 DEBUG: Log project information
+      console.log("🔍 DEBUG - webContext.project:", webContext.project);
+      console.log("🔍 DEBUG - project type:", typeof webContext.project);
+      if (webContext.project) {
+        console.log("🔍 DEBUG - project keys:", Object.keys(webContext.project));
+        console.log("🔍 DEBUG - project.id:", webContext.project.id);
+        console.log("🔍 DEBUG - project.name:", webContext.project.name);
+      }
+      
       if (!webContext.project?.id) {
+        console.error("❌ DEBUG: No project ID found!");
         messages.push("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.");
         await this.showToast("Permission Check: No project context available", "error");
         return;
@@ -108,7 +132,16 @@ export class HomePage extends React.Component<object, HomePageState> {
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      messages.push(`❌ Permission Check Failed: ${errorMessage}`);
+      console.error("❌ DEBUG: Permission check error:", error);
+      
+      // Check for specific security namespace permission error
+      if (errorMessage.includes('security namespace') && errorMessage.includes('No permissions found')) {
+        messages.push("❌ Security Permission Error: Extension lacks proper Azure DevOps permissions");
+        messages.push("🔧 Solution: Reinstall the extension or contact your Azure DevOps administrator");
+        messages.push("ℹ️  This error usually indicates missing scopes in the extension manifest");
+      } else {
+        messages.push(`❌ Permission Check Failed: ${errorMessage}`);
+      }
       
       this.setState({
         permissionStatus: {
@@ -144,9 +177,14 @@ export class HomePage extends React.Component<object, HomePageState> {
     try {
       const webContext = SDK.getWebContext();
       
+      // 🔍 DEBUG: Log webContext in loadRepositories
+      console.log("🔍 DEBUG loadRepositories - webContext:", webContext);
+      console.log("🔍 DEBUG loadRepositories - webContext.project:", webContext.project);
+      
       // Check if project context is available
       if (!webContext.project?.id) {
-        console.error('No project context available for repository loading');
+        console.error('❌ DEBUG loadRepositories: No project context available for repository loading');
+        console.error('❌ DEBUG loadRepositories: webContext.project is:', webContext.project);
         await this.showToast("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.", "error");
         this.setState({
           repos: [],
@@ -230,9 +268,14 @@ export class HomePage extends React.Component<object, HomePageState> {
     try {
       const webContext = SDK.getWebContext();
       
+      // 🔍 DEBUG: Log webContext in loadPullRequests
+      console.log("🔍 DEBUG loadPullRequests - webContext:", webContext);
+      console.log("🔍 DEBUG loadPullRequests - webContext.project:", webContext.project);
+      
       // Check if project context is available
       if (!webContext.project?.id) {
-        console.error('No project context available for pull request loading');
+        console.error('❌ DEBUG loadPullRequests: No project context available for pull request loading');
+        console.error('❌ DEBUG loadPullRequests: webContext.project is:', webContext.project);
         await this.showToast("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.", "error");
         this.setState({
           pullRequests: [],
@@ -250,17 +293,27 @@ export class HomePage extends React.Component<object, HomePageState> {
       }
       
       const projectId = webContext.project.id;
+      console.log("🔍 DEBUG loadPullRequests - projectId:", projectId);
+      
       const gitClient = getClient(GitRestClient);
+      console.log("🔍 DEBUG loadPullRequests - gitClient created:", !!gitClient);
 
       // Get all repositories first
+      console.log("🔍 DEBUG loadPullRequests - About to call getRepositories...");
       const repos = await gitClient.getRepositories(projectId);
+      console.log("🔍 DEBUG loadPullRequests - Retrieved repos:", repos);
+      console.log("🔍 DEBUG loadPullRequests - Repos count:", repos?.length || 0);
 
       // Get pull requests for all repositories
       const allPullRequests: GitPullRequest[] = [];
       for (const repo of repos || []) {
+        console.log("🔍 DEBUG loadPullRequests - Processing repo:", repo);
+        console.log("🔍 DEBUG loadPullRequests - Repo type:", typeof repo);
+        console.log("🔍 DEBUG loadPullRequests - Repo.id:", repo?.id);
+        console.log("🔍 DEBUG loadPullRequests - Repo.name:", repo?.name);
 
         if (!repo || !repo.id) {
-          console.warn('Skipping repository without valid ID:', repo);
+          console.warn('⚠️  Skipping repository without valid ID:', repo);
           continue;
         }
         
@@ -714,7 +767,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                     gap: "8px",
                   }}
                 >
-                  {repos.map((repo) => (
+                  {repos.filter(repo => repo && repo.id).map((repo) => (
                     <div
                       key={repo.id}
                       style={{
@@ -896,7 +949,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                           gap: "8px",
                         }}
                       >
-                        {prs.map((pr) => (
+                        {prs.filter(pr => pr && pr.pullRequestId).map((pr) => (
                           <div
                             key={pr.pullRequestId}
                             style={{
