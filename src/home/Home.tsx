@@ -25,11 +25,7 @@ interface HomePageState {
   error?: string;
   selectedTabId: string;
   groupedPullRequests: Record<string, GitPullRequest[]>;
-  permissionStatus: {
-    hasRepoAccess: boolean | null;
-    hasPRAccess: boolean | null;
-    permissionMessages: string[];
-  };
+
   showProjectInput: boolean;
   manualProjectName: string;
 }
@@ -63,18 +59,13 @@ export class HomePage extends React.Component<object, HomePageState> {
     try {
       // Initialize Git REST client
       this.gitClient = getClient(GitRestClient);
-      console.log("🔍 DEBUG - GitRestClient initialized:", !!this.gitClient);
 
       // Initialize Project service
       this.projectService = await SDK.getService<IProjectPageService>(
         CommonServiceIds.ProjectPageService
       );
-      console.log(
-        "🔍 DEBUG - ProjectPageService initialized:",
-        !!this.projectService
-      );
     } catch (error) {
-      console.error("❌ Failed to initialize SDK clients:", error);
+      console.error("Failed to initialize SDK clients:", error);
       throw error;
     }
   }
@@ -82,7 +73,6 @@ export class HomePage extends React.Component<object, HomePageState> {
   private getProjectFromUrl(): { id?: string; name?: string } | null {
     try {
       const url = window.top?.location.href;
-      console.log("🔍 DEBUG - Current URL:", url);
 
       // Try to extract project name from various URL patterns
       // Pattern 1: https://server/collection/project/_git/repo
@@ -99,17 +89,14 @@ export class HomePage extends React.Component<object, HomePageState> {
         const match = url?.match(pattern);
         if (match && match[2]) {
           const projectName = decodeURIComponent(match[2]);
-          console.log(
-            "🔍 DEBUG - Extracted project name from URL:",
-            projectName
-          );
+
           return { name: projectName };
         }
       }
 
       return null;
     } catch (error) {
-      console.error("❌ DEBUG - Error extracting project from URL:", error);
+      console.error("DEBUG - Error extracting project from URL:", error);
       return null;
     }
   }
@@ -119,26 +106,17 @@ export class HomePage extends React.Component<object, HomePageState> {
 
     // Try webContext first
     if (webContext.project?.id) {
-      console.log(
-        "🔍 DEBUG - Using webContext project:",
-        webContext.project.name
-      );
       return webContext.project;
     }
 
     // Try URL extraction
     const urlProject = this.getProjectFromUrl();
     if (urlProject?.name) {
-      console.log("🔍 DEBUG - Using URL extracted project:", urlProject.name);
       return urlProject;
     }
 
     // Finally, check if user has provided manual input
     if (this.state.manualProjectName.trim()) {
-      console.log(
-        "🔍 DEBUG - Using manually entered project:",
-        this.state.manualProjectName.trim()
-      );
       return { name: this.state.manualProjectName.trim() };
     }
 
@@ -171,11 +149,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       loading: true,
       selectedTabId: "repositories",
       groupedPullRequests: {},
-      permissionStatus: {
-        hasRepoAccess: null,
-        hasPRAccess: null,
-        permissionMessages: [],
-      },
+
       showProjectInput: false,
       manualProjectName: "",
     };
@@ -196,36 +170,21 @@ export class HomePage extends React.Component<object, HomePageState> {
       this.loadRepositories();
       this.loadPullRequests();
     } catch (error) {
-      console.error("❌ Extension initialization failed:", error);
+      console.error("Extension initialization failed:", error);
       await this.showToast("Failed to initialize extension", "error");
     }
   }
 
   private async checkPermissions() {
-    const messages: string[] = [];
-
     try {
       const projectInfo = this.getProjectInfo();
 
-      console.log("🔍 DEBUG - checkPermissions - projectInfo:", projectInfo);
       if (!projectInfo?.name) {
         console.error(
-          "❌ DEBUG: No project ID found in webContext and could not extract from URL!"
-        );
-        console.log("🔧 DEBUG: Enabling manual project input");
-
-        messages.push(
-          "❌ No project context available. Extension may not be properly installed in project context."
-        );
-        messages.push(
-          "🔧 Manual project entry enabled below. Please enter your project name."
+          "No project ID found in webContext and could not extract from URL!"
         );
 
         this.setState({
-          permissionStatus: {
-            ...this.state.permissionStatus,
-            permissionMessages: messages,
-          },
           showProjectInput: true,
           loading: false,
         });
@@ -234,83 +193,42 @@ export class HomePage extends React.Component<object, HomePageState> {
         return;
       }
 
-      // Check basic project access
-      messages.push(
-        `✅ Project Access: Connected to project "${projectInfo.name}"`
-      );
+      // Basic validation that we can access the project
+      if (!this.gitClient) {
+        throw new Error("Git client not initialized");
+      }
 
-      // Check permissions via REST API instead of relying on shared data
+      // Test basic access by getting repositories
       try {
-        // Try to get repositories - this will test our basic Git access
-        const reposUrl = `${this.config.azureDevOpsBaseUrl}/${projectInfo.name}/_apis/git/repositories?api-version=7.1`;
-        console.log("🔍 DEBUG - Testing repository access with URL:", reposUrl);
-
-        if (!this.gitClient) {
-          throw new Error("Git client not initialized");
-        }
-
-        const repositories = await this.gitClient.getRepositories(
+        await this.gitClient.getRepositories(
           projectInfo.id || projectInfo.name
         );
-        const repoCount = repositories?.length || 0;
-
-        messages.push(
-          `✅ Repository Access: Found ${repoCount} repositories via SDK`
-        );
-
-        // If we have repositories, test pull request access
-        if (repoCount > 0) {
-          console.log("🔍 DEBUG - Testing pull request access via SDK...");
-
-          const searchCriteria = {
-            status: PullRequestStatus.Active,
-          };
-
-          const pullRequests = await this.gitClient.getPullRequestsByProject(
-            projectInfo.name,
-            searchCriteria as any
-          );
-          const prCount = pullRequests?.length || 0;
-
-          messages.push(
-            `✅ Pull Request Access: Found ${prCount} active pull requests via SDK`
-          );
-          messages.push(`ℹ️  SDK permissions verified for Git operations`);
-        }
       } catch (permError) {
         const permErrorMessage =
           permError instanceof Error ? permError.message : String(permError);
-        console.error("❌ DEBUG: Permission check via SDK failed:", permError);
+        console.error("Permission check via SDK failed:", permError);
 
+        // Show appropriate error message
         if (
           permErrorMessage.includes("403") ||
           permErrorMessage.includes("Forbidden")
         ) {
-          messages.push(
-            "❌ Permission Error: Access denied to Git repositories"
-          );
-          messages.push(
-            "🔧 Solution: Contact your Azure DevOps administrator to grant repository access"
-          );
+          await this.showToast("Access denied to Git repositories", "error");
         } else if (
           permErrorMessage.includes("401") ||
           permErrorMessage.includes("Unauthorized")
         ) {
-          messages.push(
-            "❌ Authentication Error: Invalid or expired access token"
+          await this.showToast(
+            "Authentication error - please reload extension",
+            "error"
           );
-          messages.push("🔧 Solution: Reload the extension or re-authenticate");
         } else {
-          messages.push(`❌ SDK Access Failed: ${permErrorMessage}`);
+          await this.showToast(
+            `SDK access failed: ${permErrorMessage}`,
+            "error"
+          );
         }
       }
-
-      this.setState({
-        permissionStatus: {
-          ...this.state.permissionStatus,
-          permissionMessages: messages,
-        },
-      });
 
       await this.showToast(
         "🔍 Checking Azure DevOps permissions via SDK...",
@@ -319,24 +237,8 @@ export class HomePage extends React.Component<object, HomePageState> {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      console.error("❌ DEBUG: Permission check error:", error);
-
-      messages.push(`❌ Permission Check Failed: ${errorMessage}`);
-      messages.push(
-        "🔧 Solution: This extension requires access to Git repositories"
-      );
-
-      this.setState({
-        permissionStatus: {
-          ...this.state.permissionStatus,
-          permissionMessages: messages,
-        },
-      });
-
-      await this.showToast(
-        "❌ Permission check failed during initialization",
-        "error"
-      );
+      console.error("Permission check error:", error);
+      await this.showToast(`Permission check failed: ${errorMessage}`, "error");
     }
   }
 
@@ -345,10 +247,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       const baseUrl = await this.getOrganizationBaseUrl();
       const url = new URL(baseUrl);
       this.config.azureDevOpsBaseUrl = `${url.protocol}//${url.host}`;
-      console.log(
-        "Successfully detected Azure DevOps base URL:",
-        this.config.azureDevOpsBaseUrl
-      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -363,33 +261,16 @@ export class HomePage extends React.Component<object, HomePageState> {
     try {
       const projectInfo = this.getProjectInfo();
 
-      console.log(
-        "🔍 DEBUG loadRepositoriesViaRest - projectInfo:",
-        projectInfo
-      );
       if (!this.gitClient) {
         throw new Error("Git client not initialized");
       }
 
-      console.log("🔍 DEBUG loadRepositories - projectId:", projectInfo?.name);
-
       // Use SDK client instead of REST API call
       const repos = await this.gitClient.getRepositories(projectInfo?.name);
-
-      // Update permission status for successful repository access
-      const updatedMessages = [
-        ...this.state.permissionStatus.permissionMessages,
-        `✅ Repository Access: Successfully loaded ${repos.length} repositories via SDK`,
-      ];
 
       this.setState({
         repos: repos,
         loading: false,
-        permissionStatus: {
-          ...this.state.permissionStatus,
-          hasRepoAccess: true,
-          permissionMessages: updatedMessages,
-        },
       });
 
       await this.showToast(
@@ -417,29 +298,19 @@ export class HomePage extends React.Component<object, HomePageState> {
         }
       }
 
-      const updatedMessages = [
-        ...this.state.permissionStatus.permissionMessages,
-        `❌ Repository Access Failed: ${message}`,
-      ];
-
       this.setState({
         error: message,
         loading: false,
-        permissionStatus: {
-          ...this.state.permissionStatus,
-          hasRepoAccess: false,
-          permissionMessages: updatedMessages,
-        },
       });
 
       if (isPermissionError) {
         await this.showToast(
-          "❌ Permission Error: Cannot read repositories. Contact your Azure DevOps administrator to grant 'Repository Read' permissions.",
+          "Permission Error: Cannot read repositories. Contact your Azure DevOps administrator to grant 'Repository Read' permissions.",
           "error"
         );
       } else {
         await this.showToast(
-          `❌ Failed to load repositories: ${message}`,
+          `Failed to load repositories: ${message}`,
           "error"
         );
       }
@@ -452,7 +323,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       if (!projectInfo?.name) {
         await this.showToast(
-          "❌ No project context available. Please enter project name manually.",
+          "No project context available. Please enter project name manually.",
           "error"
         );
         return;
@@ -471,32 +342,13 @@ export class HomePage extends React.Component<object, HomePageState> {
         searchCriteria as any
       );
 
-      console.log(
-        "🔍 DEBUG loadPullRequests - Retrieved PRs:",
-        allPullRequests
-      );
-      console.log(
-        "🔍 DEBUG loadPullRequests - PRs count:",
-        allPullRequests.length
-      );
-
       // Group pull requests by title
       const groupedPullRequests = this.groupPullRequests(allPullRequests);
 
       // Update permission status for successful pull request access
-      const updatedMessages = [
-        ...this.state.permissionStatus.permissionMessages,
-        `✅ Pull Request Access: Successfully loaded ${allPullRequests.length} pull requests via SDK`,
-      ];
-
       this.setState({
         pullRequests: allPullRequests,
         groupedPullRequests,
-        permissionStatus: {
-          ...this.state.permissionStatus,
-          hasPRAccess: true,
-          permissionMessages: updatedMessages,
-        },
       });
 
       if (allPullRequests.length > 0) {
@@ -528,29 +380,19 @@ export class HomePage extends React.Component<object, HomePageState> {
         isPermissionError = true;
       }
 
-      const updatedMessages = [
-        ...this.state.permissionStatus.permissionMessages,
-        `❌ Pull Request Access Failed: ${errorMessage}`,
-      ];
-
       this.setState({
         pullRequests: [],
         groupedPullRequests: {},
-        permissionStatus: {
-          ...this.state.permissionStatus,
-          hasPRAccess: false,
-          permissionMessages: updatedMessages,
-        },
       });
 
       if (isPermissionError) {
         await this.showToast(
-          `❌ Permission Error: Cannot read pull requests via SDK. Contact your Azure DevOps administrator to grant access.`,
+          `Permission Error: Cannot read pull requests via SDK. Contact your Azure DevOps administrator to grant access.`,
           "error"
         );
       } else {
         await this.showToast(
-          `❌ Failed to load pull requests: ${errorMessage}`,
+          `Failed to load pull requests: ${errorMessage}`,
           "error"
         );
       }
@@ -612,7 +454,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       return;
     }
 
-    const repoUrl = `${this.config.azureDevOpsBaseUrl}/${projectInfo.name}/_git/${repo.name}`;
+    const repoUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${repo.name}`;
     window.open(repoUrl, "_blank");
   };
 
@@ -650,7 +492,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       );
 
       if (pullRequest) {
-        const prUrl = `${this.config.azureDevOpsBaseUrl}/${projectName}/_git/${repo.name}/pullrequest/${pullRequest.pullRequestId}`;
+        const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_git/${repo.name}/pullrequest/${pullRequest.pullRequestId}`;
         window.open(prUrl, "_blank");
         await this.showToast("Pull request created successfully!", "success");
       }
@@ -727,7 +569,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       error,
       selectedTabId,
       groupedPullRequests,
-      permissionStatus,
     } = this.state;
 
     return (
@@ -836,118 +677,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                 onClick={this.handleProjectSubmit}
                 disabled={!this.state.manualProjectName.trim()}
               />
-            </div>
-          </div>
-        )}
-
-        {/* Permission Status Panel */}
-        {permissionStatus.permissionMessages.length > 0 && (
-          <div
-            style={{
-              margin: "16px 24px",
-              padding: "16px",
-              backgroundColor: "white",
-              border: "1px solid #e1e1e1",
-              borderRadius: "6px",
-              fontSize: "12px",
-              fontFamily: "monospace",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                marginBottom: "12px",
-                fontSize: "14px",
-                fontWeight: "600",
-                color: "#323130",
-              }}
-            >
-              <Icon
-                iconName="SecurityGroup"
-                style={{ marginRight: "8px", color: "#0078d4" }}
-              />
-              Permission Status - Git Repositories Namespace (
-              {this.GIT_REPOSITORIES_SECURITY_NAMESPACE})
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gap: "6px",
-                maxHeight: "120px",
-                overflowY: "auto",
-                padding: "8px",
-                backgroundColor: "#f8f9fa",
-                borderRadius: "4px",
-              }}
-            >
-              {permissionStatus.permissionMessages.map((message, index) => (
-                <div
-                  key={index}
-                  style={{
-                    color: message.startsWith("✅")
-                      ? "#107c10"
-                      : message.startsWith("❌")
-                      ? "#d13438"
-                      : message.startsWith("ℹ️")
-                      ? "#0078d4"
-                      : "#666",
-                    lineHeight: "1.4",
-                  }}
-                >
-                  {message}
-                </div>
-              ))}
-            </div>
-
-            {/* Quick Permission Summary */}
-            <div
-              style={{
-                marginTop: "12px",
-                padding: "8px",
-                backgroundColor: "#f3f2f1",
-                borderRadius: "4px",
-                display: "flex",
-                gap: "16px",
-                alignItems: "center",
-                fontSize: "12px",
-              }}
-            >
-              <span
-                style={{
-                  color:
-                    permissionStatus.hasRepoAccess === true
-                      ? "#107c10"
-                      : permissionStatus.hasRepoAccess === false
-                      ? "#d13438"
-                      : "#666",
-                }}
-              >
-                {permissionStatus.hasRepoAccess === true
-                  ? "✅"
-                  : permissionStatus.hasRepoAccess === false
-                  ? "❌"
-                  : "⏳"}{" "}
-                Repository Access
-              </span>
-              <span
-                style={{
-                  color:
-                    permissionStatus.hasPRAccess === true
-                      ? "#107c10"
-                      : permissionStatus.hasPRAccess === false
-                      ? "#d13438"
-                      : "#666",
-                }}
-              >
-                {permissionStatus.hasPRAccess === true
-                  ? "✅"
-                  : permissionStatus.hasPRAccess === false
-                  ? "❌"
-                  : "⏳"}{" "}
-                Pull Request Access
-              </span>
             </div>
           </div>
         )}
