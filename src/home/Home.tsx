@@ -43,7 +43,8 @@ export class HomePage extends React.Component<object, HomePageState> {
   };
 
   private CORE_AREA_ID = "79134c72-4a58-4b42-976c-04e7115f32bf";
-  private GIT_REPOSITORIES_SECURITY_NAMESPACE = "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87";
+  private GIT_REPOSITORIES_SECURITY_NAMESPACE =
+    "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87";
 
   public async getOrganizationBaseUrl(): Promise<string> {
     const loc = await SDK.getService<ILocationService>(
@@ -68,57 +69,74 @@ export class HomePage extends React.Component<object, HomePageState> {
     };
   }
 
-  public componentDidMount() {
-    SDK.init();
-    SDK.ready().then(async () => {
-      await this.initializeConfig();
-      await this.checkPermissions();
-      this.loadRepositories();
-      this.loadPullRequests();
-    });
+  public async componentDidMount() {
+    await SDK.init({ applyTheme: true });
+
+    await SDK.ready();
+
+    await this.initializeConfig();
+    await this.checkPermissions();
+    this.loadRepositories();
+    this.loadPullRequests();
   }
 
   private async checkPermissions() {
     const messages: string[] = [];
-    
+
     try {
       // Check if user can access Azure DevOps project
       const webContext = SDK.getWebContext();
-      
+
       // 🔍 DEBUG: Log complete webContext structure
       console.log("🔍 DEBUG - Complete webContext:", webContext);
       console.log("🔍 DEBUG - webContext type:", typeof webContext);
       console.log("🔍 DEBUG - webContext keys:", Object.keys(webContext || {}));
-      
+
       // Check if SDK is properly initialized
       if (!webContext) {
-        console.error("❌ DEBUG: webContext is null/undefined - SDK may not be properly initialized");
-        messages.push("❌ Azure DevOps SDK not properly initialized. Please reload the page.");
+        console.error(
+          "❌ DEBUG: webContext is null/undefined - SDK may not be properly initialized"
+        );
+        messages.push(
+          "❌ Azure DevOps SDK not properly initialized. Please reload the page."
+        );
         await this.showToast("SDK initialization failed", "error");
         return;
       }
-      
+
       // 🔍 DEBUG: Log project information
       console.log("🔍 DEBUG - webContext.project:", webContext.project);
       console.log("🔍 DEBUG - project type:", typeof webContext.project);
       if (webContext.project) {
-        console.log("🔍 DEBUG - project keys:", Object.keys(webContext.project));
+        console.log(
+          "🔍 DEBUG - project keys:",
+          Object.keys(webContext.project)
+        );
         console.log("🔍 DEBUG - project.id:", webContext.project.id);
         console.log("🔍 DEBUG - project.name:", webContext.project.name);
       }
-      
+
       if (!webContext.project?.id) {
         console.error("❌ DEBUG: No project ID found!");
-        messages.push("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.");
-        await this.showToast("Permission Check: No project context available", "error");
+        messages.push(
+          "❌ No project context available. Please ensure this extension is running within an Azure DevOps project."
+        );
+        await this.showToast(
+          "Permission Check: No project context available",
+          "error"
+        );
         return;
       }
 
       // Check basic project access
-      messages.push(`✅ Project Access: Connected to project "${webContext.project.name}"`);
-      
+      messages.push(
+        `✅ Project Access: Connected to project "${webContext.project.name}"`
+      );
+
       // Show info about required permissions
-      messages.push(`ℹ️  Required Permissions: This extension needs access to Git Repositories security namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE})`);
+      messages.push(
+        `ℹ️  Required Permissions: This extension needs access to Git Repositories security namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE})`
+      );
       messages.push("ℹ️  Checking repository and pull request access...");
 
       this.setState({
@@ -129,28 +147,40 @@ export class HomePage extends React.Component<object, HomePageState> {
       });
 
       await this.showToast("🔍 Checking Azure DevOps permissions...", "info");
-      
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       console.error("❌ DEBUG: Permission check error:", error);
-      
+
       // Check for specific security namespace permission error
-      if (errorMessage.includes('security namespace') && errorMessage.includes('No permissions found')) {
-        messages.push("❌ Security Permission Error: Extension lacks proper Azure DevOps permissions");
-        messages.push("🔧 Solution: Reinstall the extension or contact your Azure DevOps administrator");
-        messages.push("ℹ️  This error usually indicates missing scopes in the extension manifest");
+      if (
+        errorMessage.includes("security namespace") &&
+        errorMessage.includes("No permissions found")
+      ) {
+        messages.push(
+          "❌ Security Permission Error: Extension lacks proper Azure DevOps permissions"
+        );
+        messages.push(
+          "🔧 Solution: Reinstall the extension or contact your Azure DevOps administrator"
+        );
+        messages.push(
+          "ℹ️  This error usually indicates missing scopes in the extension manifest"
+        );
       } else {
         messages.push(`❌ Permission Check Failed: ${errorMessage}`);
       }
-      
+
       this.setState({
         permissionStatus: {
           ...this.state.permissionStatus,
           permissionMessages: messages,
         },
       });
-      
-      await this.showToast("❌ Permission check failed during initialization", "error");
+
+      await this.showToast(
+        "❌ Permission check failed during initialization",
+        "error"
+      );
     }
   }
 
@@ -176,16 +206,27 @@ export class HomePage extends React.Component<object, HomePageState> {
   async loadRepositories() {
     try {
       const webContext = SDK.getWebContext();
-      
+
       // 🔍 DEBUG: Log webContext in loadRepositories
       console.log("🔍 DEBUG loadRepositories - webContext:", webContext);
-      console.log("🔍 DEBUG loadRepositories - webContext.project:", webContext.project);
-      
+      console.log(
+        "🔍 DEBUG loadRepositories - webContext.project:",
+        webContext.project
+      );
+
       // Check if project context is available
       if (!webContext.project?.id) {
-        console.error('❌ DEBUG loadRepositories: No project context available for repository loading');
-        console.error('❌ DEBUG loadRepositories: webContext.project is:', webContext.project);
-        await this.showToast("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.", "error");
+        console.error(
+          "❌ DEBUG loadRepositories: No project context available for repository loading"
+        );
+        console.error(
+          "❌ DEBUG loadRepositories: webContext.project is:",
+          webContext.project
+        );
+        await this.showToast(
+          "❌ No project context available. Please ensure this extension is running within an Azure DevOps project.",
+          "error"
+        );
         this.setState({
           repos: [],
           loading: false,
@@ -195,13 +236,13 @@ export class HomePage extends React.Component<object, HomePageState> {
             hasRepoAccess: false,
             permissionMessages: [
               ...this.state.permissionStatus.permissionMessages,
-              "❌ Repository Access Failed: No project context available"
+              "❌ Repository Access Failed: No project context available",
             ],
           },
         });
         return;
       }
-      
+
       const projectId = webContext.project.id;
       const gitClient = getClient(GitRestClient);
 
@@ -211,7 +252,9 @@ export class HomePage extends React.Component<object, HomePageState> {
       // Update permission status for successful repository access
       const updatedMessages = [
         ...this.state.permissionStatus.permissionMessages,
-        `✅ Repository Access: Successfully loaded ${repos?.length || 0} repositories`
+        `✅ Repository Access: Successfully loaded ${
+          repos?.length || 0
+        } repositories`,
       ];
 
       this.setState({
@@ -224,18 +267,28 @@ export class HomePage extends React.Component<object, HomePageState> {
         },
       });
 
-      await this.showToast(`✅ Repository permissions verified! Found ${repos?.length || 0} repositories.`, "success");
+      await this.showToast(
+        `✅ Repository permissions verified! Found ${
+          repos?.length || 0
+        } repositories.`,
+        "success"
+      );
     } catch (error: unknown) {
       let message = "Failed to load repositories";
       let isPermissionError = false;
-      
+
       if (error instanceof Error) {
         message = error.message;
-        
+
         // Check for permission-related errors
-        if (message.includes("403") || message.includes("Forbidden") || 
-            message.includes("unauthorized") || message.includes("permission") ||
-            message.includes("access denied") || message.includes("TF401028")) {
+        if (
+          message.includes("403") ||
+          message.includes("Forbidden") ||
+          message.includes("unauthorized") ||
+          message.includes("permission") ||
+          message.includes("access denied") ||
+          message.includes("TF401028")
+        ) {
           isPermissionError = true;
           message = `Access Denied: You don't have permission to read repositories. Required permission: 'GenericRead' in Git Repositories namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE})`;
         }
@@ -243,7 +296,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       const updatedMessages = [
         ...this.state.permissionStatus.permissionMessages,
-        `❌ Repository Access Failed: ${message}`
+        `❌ Repository Access Failed: ${message}`,
       ];
 
       this.setState({
@@ -257,9 +310,15 @@ export class HomePage extends React.Component<object, HomePageState> {
       });
 
       if (isPermissionError) {
-        await this.showToast("❌ Permission Error: Cannot read repositories. Contact your Azure DevOps administrator to grant 'Repository Read' permissions.", "error");
+        await this.showToast(
+          "❌ Permission Error: Cannot read repositories. Contact your Azure DevOps administrator to grant 'Repository Read' permissions.",
+          "error"
+        );
       } else {
-        await this.showToast(`❌ Failed to load repositories: ${message}`, "error");
+        await this.showToast(
+          `❌ Failed to load repositories: ${message}`,
+          "error"
+        );
       }
     }
   }
@@ -267,16 +326,27 @@ export class HomePage extends React.Component<object, HomePageState> {
   async loadPullRequests() {
     try {
       const webContext = SDK.getWebContext();
-      
+
       // 🔍 DEBUG: Log webContext in loadPullRequests
       console.log("🔍 DEBUG loadPullRequests - webContext:", webContext);
-      console.log("🔍 DEBUG loadPullRequests - webContext.project:", webContext.project);
-      
+      console.log(
+        "🔍 DEBUG loadPullRequests - webContext.project:",
+        webContext.project
+      );
+
       // Check if project context is available
       if (!webContext.project?.id) {
-        console.error('❌ DEBUG loadPullRequests: No project context available for pull request loading');
-        console.error('❌ DEBUG loadPullRequests: webContext.project is:', webContext.project);
-        await this.showToast("❌ No project context available. Please ensure this extension is running within an Azure DevOps project.", "error");
+        console.error(
+          "❌ DEBUG loadPullRequests: No project context available for pull request loading"
+        );
+        console.error(
+          "❌ DEBUG loadPullRequests: webContext.project is:",
+          webContext.project
+        );
+        await this.showToast(
+          "❌ No project context available. Please ensure this extension is running within an Azure DevOps project.",
+          "error"
+        );
         this.setState({
           pullRequests: [],
           groupedPullRequests: {},
@@ -285,24 +355,32 @@ export class HomePage extends React.Component<object, HomePageState> {
             hasPRAccess: false,
             permissionMessages: [
               ...this.state.permissionStatus.permissionMessages,
-              "❌ Pull Request Access Failed: No project context available"
+              "❌ Pull Request Access Failed: No project context available",
             ],
           },
         });
         return;
       }
-      
+
       const projectId = webContext.project.id;
       console.log("🔍 DEBUG loadPullRequests - projectId:", projectId);
-      
+
       const gitClient = getClient(GitRestClient);
-      console.log("🔍 DEBUG loadPullRequests - gitClient created:", !!gitClient);
+      console.log(
+        "🔍 DEBUG loadPullRequests - gitClient created:",
+        !!gitClient
+      );
 
       // Get all repositories first
-      console.log("🔍 DEBUG loadPullRequests - About to call getRepositories...");
+      console.log(
+        "🔍 DEBUG loadPullRequests - About to call getRepositories..."
+      );
       const repos = await gitClient.getRepositories(projectId);
       console.log("🔍 DEBUG loadPullRequests - Retrieved repos:", repos);
-      console.log("🔍 DEBUG loadPullRequests - Repos count:", repos?.length || 0);
+      console.log(
+        "🔍 DEBUG loadPullRequests - Repos count:",
+        repos?.length || 0
+      );
 
       // Get pull requests for all repositories
       const allPullRequests: GitPullRequest[] = [];
@@ -313,10 +391,10 @@ export class HomePage extends React.Component<object, HomePageState> {
         console.log("🔍 DEBUG loadPullRequests - Repo.name:", repo?.name);
 
         if (!repo || !repo.id) {
-          console.warn('⚠️  Skipping repository without valid ID:', repo);
+          console.warn("⚠️  Skipping repository without valid ID:", repo);
           continue;
         }
-        
+
         try {
           // Use safe search criteria to avoid SQL exceptions
           const pullRequests = await gitClient.getPullRequests(repo.id, {
@@ -338,12 +416,15 @@ export class HomePage extends React.Component<object, HomePageState> {
           }
         } catch (error) {
           console.warn(
-            `Failed to load pull requests for repo ${repo.name || 'Unknown'}:`,
+            `Failed to load pull requests for repo ${repo.name || "Unknown"}:`,
             error
           );
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
           await this.showToast(
-            `Failed to load pull requests for ${repo.name || 'repository'}: ${errorMessage}`,
+            `Failed to load pull requests for ${
+              repo.name || "repository"
+            }: ${errorMessage}`,
             "warning"
           );
           // Continue with other repositories even if one fails
@@ -356,7 +437,9 @@ export class HomePage extends React.Component<object, HomePageState> {
       // Update permission status for successful pull request access
       const updatedMessages = [
         ...this.state.permissionStatus.permissionMessages,
-        `✅ Pull Request Access: Successfully loaded ${allPullRequests.length} pull requests from ${(repos || []).length} repositories`
+        `✅ Pull Request Access: Successfully loaded ${
+          allPullRequests.length
+        } pull requests from ${(repos || []).length} repositories`,
       ];
 
       this.setState({
@@ -370,25 +453,37 @@ export class HomePage extends React.Component<object, HomePageState> {
       });
 
       if (allPullRequests.length > 0) {
-        await this.showToast(`✅ Pull Request permissions verified! Found ${allPullRequests.length} active pull requests.`, "success");
+        await this.showToast(
+          `✅ Pull Request permissions verified! Found ${allPullRequests.length} active pull requests.`,
+          "success"
+        );
       } else {
-        await this.showToast("✅ Pull Request access verified, but no active pull requests found.", "info");
+        await this.showToast(
+          "✅ Pull Request access verified, but no active pull requests found.",
+          "info"
+        );
       }
     } catch (error: unknown) {
       console.error("Failed to load pull requests:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       let isPermissionError = false;
-      
+
       // Check for permission-related errors
-      if (errorMessage.includes("403") || errorMessage.includes("Forbidden") || 
-          errorMessage.includes("unauthorized") || errorMessage.includes("permission") ||
-          errorMessage.includes("access denied") || errorMessage.includes("TF401028")) {
+      if (
+        errorMessage.includes("403") ||
+        errorMessage.includes("Forbidden") ||
+        errorMessage.includes("unauthorized") ||
+        errorMessage.includes("permission") ||
+        errorMessage.includes("access denied") ||
+        errorMessage.includes("TF401028")
+      ) {
         isPermissionError = true;
       }
 
       const updatedMessages = [
         ...this.state.permissionStatus.permissionMessages,
-        `❌ Pull Request Access Failed: ${errorMessage}`
+        `❌ Pull Request Access Failed: ${errorMessage}`,
       ];
 
       this.setState({
@@ -402,9 +497,15 @@ export class HomePage extends React.Component<object, HomePageState> {
       });
 
       if (isPermissionError) {
-        await this.showToast(`❌ Permission Error: Cannot read pull requests. Required permission: 'PullRequestContribute' in Git Repositories namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE}). Contact your Azure DevOps administrator.`, "error");
+        await this.showToast(
+          `❌ Permission Error: Cannot read pull requests. Required permission: 'PullRequestContribute' in Git Repositories namespace (${this.GIT_REPOSITORIES_SECURITY_NAMESPACE}). Contact your Azure DevOps administrator.`,
+          "error"
+        );
       } else {
-        await this.showToast(`❌ Failed to load pull requests: ${errorMessage}`, "error");
+        await this.showToast(
+          `❌ Failed to load pull requests: ${errorMessage}`,
+          "error"
+        );
       }
     }
   }
@@ -608,72 +709,111 @@ export class HomePage extends React.Component<object, HomePageState> {
 
         {/* Permission Status Panel */}
         {permissionStatus.permissionMessages.length > 0 && (
-          <div style={{
-            margin: "16px 24px",
-            padding: "16px",
-            backgroundColor: "white",
-            border: "1px solid #e1e1e1",
-            borderRadius: "6px",
-            fontSize: "12px",
-            fontFamily: "monospace"
-          }}>
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              marginBottom: "12px",
-              fontSize: "14px",
-              fontWeight: "600",
-              color: "#323130"
-            }}>
-              <Icon iconName="SecurityGroup" style={{ marginRight: "8px", color: "#0078d4" }} />
-              Permission Status - Git Repositories Namespace ({this.GIT_REPOSITORIES_SECURITY_NAMESPACE})
+          <div
+            style={{
+              margin: "16px 24px",
+              padding: "16px",
+              backgroundColor: "white",
+              border: "1px solid #e1e1e1",
+              borderRadius: "6px",
+              fontSize: "12px",
+              fontFamily: "monospace",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                marginBottom: "12px",
+                fontSize: "14px",
+                fontWeight: "600",
+                color: "#323130",
+              }}
+            >
+              <Icon
+                iconName="SecurityGroup"
+                style={{ marginRight: "8px", color: "#0078d4" }}
+              />
+              Permission Status - Git Repositories Namespace (
+              {this.GIT_REPOSITORIES_SECURITY_NAMESPACE})
             </div>
-            
-            <div style={{
-              display: "grid",
-              gap: "6px",
-              maxHeight: "120px",
-              overflowY: "auto",
-              padding: "8px",
-              backgroundColor: "#f8f9fa",
-              borderRadius: "4px"
-            }}>
+
+            <div
+              style={{
+                display: "grid",
+                gap: "6px",
+                maxHeight: "120px",
+                overflowY: "auto",
+                padding: "8px",
+                backgroundColor: "#f8f9fa",
+                borderRadius: "4px",
+              }}
+            >
               {permissionStatus.permissionMessages.map((message, index) => (
-                <div key={index} style={{
-                  color: message.startsWith("✅") ? "#107c10" : 
-                         message.startsWith("❌") ? "#d13438" : 
-                         message.startsWith("ℹ️") ? "#0078d4" : "#666",
-                  lineHeight: "1.4"
-                }}>
+                <div
+                  key={index}
+                  style={{
+                    color: message.startsWith("✅")
+                      ? "#107c10"
+                      : message.startsWith("❌")
+                      ? "#d13438"
+                      : message.startsWith("ℹ️")
+                      ? "#0078d4"
+                      : "#666",
+                    lineHeight: "1.4",
+                  }}
+                >
                   {message}
                 </div>
               ))}
             </div>
 
             {/* Quick Permission Summary */}
-            <div style={{
-              marginTop: "12px",
-              padding: "8px",
-              backgroundColor: "#f3f2f1",
-              borderRadius: "4px",
-              display: "flex",
-              gap: "16px",
-              alignItems: "center",
-              fontSize: "12px"
-            }}>
-              <span style={{
-                color: permissionStatus.hasRepoAccess === true ? "#107c10" : 
-                       permissionStatus.hasRepoAccess === false ? "#d13438" : "#666"
-              }}>
-                {permissionStatus.hasRepoAccess === true ? "✅" : 
-                 permissionStatus.hasRepoAccess === false ? "❌" : "⏳"} Repository Access
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "8px",
+                backgroundColor: "#f3f2f1",
+                borderRadius: "4px",
+                display: "flex",
+                gap: "16px",
+                alignItems: "center",
+                fontSize: "12px",
+              }}
+            >
+              <span
+                style={{
+                  color:
+                    permissionStatus.hasRepoAccess === true
+                      ? "#107c10"
+                      : permissionStatus.hasRepoAccess === false
+                      ? "#d13438"
+                      : "#666",
+                }}
+              >
+                {permissionStatus.hasRepoAccess === true
+                  ? "✅"
+                  : permissionStatus.hasRepoAccess === false
+                  ? "❌"
+                  : "⏳"}{" "}
+                Repository Access
               </span>
-              <span style={{
-                color: permissionStatus.hasPRAccess === true ? "#107c10" : 
-                       permissionStatus.hasPRAccess === false ? "#d13438" : "#666"
-              }}>
-                {permissionStatus.hasPRAccess === true ? "✅" : 
-                 permissionStatus.hasPRAccess === false ? "❌" : "⏳"} Pull Request Access
+              <span
+                style={{
+                  color:
+                    permissionStatus.hasPRAccess === true
+                      ? "#107c10"
+                      : permissionStatus.hasPRAccess === false
+                      ? "#d13438"
+                      : "#666",
+                }}
+              >
+                {permissionStatus.hasPRAccess === true
+                  ? "✅"
+                  : permissionStatus.hasPRAccess === false
+                  ? "❌"
+                  : "⏳"}{" "}
+                Pull Request Access
               </span>
             </div>
           </div>
@@ -767,115 +907,119 @@ export class HomePage extends React.Component<object, HomePageState> {
                     gap: "8px",
                   }}
                 >
-                  {repos.filter(repo => repo && repo.id).map((repo) => (
-                    <div
-                      key={repo.id}
-                      style={{
-                        backgroundColor: "white",
-                        border: "1px solid #e1e1e1",
-                        borderRadius: "6px",
-                        padding: "16px 20px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        transition:
-                          "box-shadow 0.2s ease, border-color 0.2s ease",
-                        cursor: "pointer",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.boxShadow =
-                          "0 2px 8px rgba(0,0,0,0.1)";
-                        e.currentTarget.style.borderColor = "#0078d4";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.boxShadow = "none";
-                        e.currentTarget.style.borderColor = "#e1e1e1";
-                      }}
-                      onClick={() => this.openRepository(repo)}
-                    >
+                  {repos
+                    .filter((repo) => repo && repo.id)
+                    .map((repo) => (
                       <div
+                        key={repo.id}
                         style={{
+                          backgroundColor: "white",
+                          border: "1px solid #e1e1e1",
+                          borderRadius: "6px",
+                          padding: "16px 20px",
                           display: "flex",
                           alignItems: "center",
-                          gap: "16px",
-                          flex: 1,
+                          justifyContent: "space-between",
+                          transition:
+                            "box-shadow 0.2s ease, border-color 0.2s ease",
+                          cursor: "pointer",
                         }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.boxShadow =
+                            "0 2px 8px rgba(0,0,0,0.1)";
+                          e.currentTarget.style.borderColor = "#0078d4";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.boxShadow = "none";
+                          e.currentTarget.style.borderColor = "#e1e1e1";
+                        }}
+                        onClick={() => this.openRepository(repo)}
                       >
                         <div
                           style={{
-                            width: "32px",
-                            height: "32px",
-                            borderRadius: "50%",
-                            backgroundColor: "#0078d4",
                             display: "flex",
                             alignItems: "center",
-                            justifyContent: "center",
-                            color: "white",
-                            fontWeight: "600",
-                            fontSize: "14px",
+                            gap: "16px",
+                            flex: 1,
                           }}
                         >
-                          {repo.name.charAt(0).toUpperCase()}
-                        </div>
-
-                        <div style={{ flex: 1 }}>
                           <div
                             style={{
-                              fontSize: "16px",
-                              fontWeight: "600",
-                              color: "#323130",
-                              marginBottom: "4px",
-                            }}
-                          >
-                            {repo.name}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              color: "#666",
+                              width: "32px",
+                              height: "32px",
+                              borderRadius: "50%",
+                              backgroundColor: "#0078d4",
                               display: "flex",
                               alignItems: "center",
-                              gap: "12px",
+                              justifyContent: "center",
+                              color: "white",
+                              fontWeight: "600",
+                              fontSize: "14px",
                             }}
                           >
-                            <span>
-                              Default Branch:{" "}
-                              {repo.defaultBranch?.replace("refs/heads/", "") ||
-                                "None"}
-                            </span>
-                            <span>•</span>
-                            <span>
-                              Size:{" "}
-                              {repo.size
-                                ? `${Math.round(repo.size / 1024)} KB`
-                                : "Unknown"}
-                            </span>
+                            {repo.name.charAt(0).toUpperCase()}
+                          </div>
+
+                          <div style={{ flex: 1 }}>
+                            <div
+                              style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "#323130",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              {repo.name}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                color: "#666",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "12px",
+                              }}
+                            >
+                              <span>
+                                Default Branch:{" "}
+                                {repo.defaultBranch?.replace(
+                                  "refs/heads/",
+                                  ""
+                                ) || "None"}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                Size:{" "}
+                                {repo.size
+                                  ? `${Math.round(repo.size / 1024)} KB`
+                                  : "Unknown"}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                      >
                         <div
                           style={{
-                            width: "8px",
-                            height: "8px",
-                            borderRadius: "50%",
-                            backgroundColor: "#107c10",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
                           }}
-                        />
-                        <Icon
-                          iconName="ChevronRight"
-                          style={{ color: "#666", fontSize: "12px" }}
-                        />
+                        >
+                          <div
+                            style={{
+                              width: "8px",
+                              height: "8px",
+                              borderRadius: "50%",
+                              backgroundColor: "#107c10",
+                            }}
+                          />
+                          <Icon
+                            iconName="ChevronRight"
+                            style={{ color: "#666", fontSize: "12px" }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               )}
             </div>
@@ -949,207 +1093,216 @@ export class HomePage extends React.Component<object, HomePageState> {
                           gap: "8px",
                         }}
                       >
-                        {prs.filter(pr => pr && pr.pullRequestId).map((pr) => (
-                          <div
-                            key={pr.pullRequestId}
-                            style={{
-                              backgroundColor: "white",
-                              border: "1px solid #e1e1e1",
-                              borderRadius: "6px",
-                              padding: "16px 20px",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              transition:
-                                "box-shadow 0.2s ease, border-color 0.2s ease",
-                              cursor: "pointer",
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.boxShadow =
-                                "0 2px 8px rgba(0,0,0,0.1)";
-                              e.currentTarget.style.borderColor = "#0078d4";
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.boxShadow = "none";
-                              e.currentTarget.style.borderColor = "#e1e1e1";
-                            }}
-                            onClick={() => {
-                              const webContext = SDK.getWebContext();
-                              const prUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
-                              window.open(prUrl, "_blank");
-                            }}
-                          >
+                        {prs
+                          .filter((pr) => pr && pr.pullRequestId)
+                          .map((pr) => (
                             <div
+                              key={pr.pullRequestId}
                               style={{
+                                backgroundColor: "white",
+                                border: "1px solid #e1e1e1",
+                                borderRadius: "6px",
+                                padding: "16px 20px",
                                 display: "flex",
                                 alignItems: "center",
-                                gap: "16px",
-                                flex: 1,
+                                justifyContent: "space-between",
+                                transition:
+                                  "box-shadow 0.2s ease, border-color 0.2s ease",
+                                cursor: "pointer",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.boxShadow =
+                                  "0 2px 8px rgba(0,0,0,0.1)";
+                                e.currentTarget.style.borderColor = "#0078d4";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.boxShadow = "none";
+                                e.currentTarget.style.borderColor = "#e1e1e1";
+                              }}
+                              onClick={() => {
+                                const webContext = SDK.getWebContext();
+                                const prUrl = `${this.config.azureDevOpsBaseUrl}/${webContext.project.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                                window.open(prUrl, "_blank");
                               }}
                             >
                               <div
                                 style={{
-                                  width: "32px",
-                                  height: "32px",
-                                  borderRadius: "50%",
-                                  backgroundColor: this.getStatusColor(
-                                    pr.status || 0
-                                  ),
                                   display: "flex",
                                   alignItems: "center",
-                                  justifyContent: "center",
-                                  color: "white",
-                                  fontWeight: "600",
-                                  fontSize: "14px",
+                                  gap: "16px",
+                                  flex: 1,
                                 }}
                               >
-                                PR
-                              </div>
-
-                              <div style={{ flex: 1 }}>
                                 <div
                                   style={{
-                                    fontSize: "16px",
-                                    fontWeight: "600",
-                                    color: "#323130",
-                                    marginBottom: "4px",
-                                  }}
-                                >
-                                  {pr.repository?.name} -{" "}
-                                  {pr.sourceRefName?.replace("refs/heads/", "")}{" "}
-                                  →{" "}
-                                  {pr.targetRefName?.replace("refs/heads/", "")}
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "12px",
-                                    color: "#666",
+                                    width: "32px",
+                                    height: "32px",
+                                    borderRadius: "50%",
+                                    backgroundColor: this.getStatusColor(
+                                      pr.status || 0
+                                    ),
                                     display: "flex",
                                     alignItems: "center",
-                                    gap: "12px",
-                                    flexWrap: "wrap",
+                                    justifyContent: "center",
+                                    color: "white",
+                                    fontWeight: "600",
+                                    fontSize: "14px",
                                   }}
                                 >
-                                  <span>
-                                    Status: {this.getStatusText(pr.status || 0)}
-                                  </span>
-                                  <span>•</span>
-                                  <span>ID: #{pr.pullRequestId}</span>
-                                  <span>•</span>
-                                  <span
+                                  PR
+                                </div>
+
+                                <div style={{ flex: 1 }}>
+                                  <div
                                     style={{
-                                      padding: "2px 6px",
-                                      borderRadius: "4px",
-                                      fontSize: "10px",
+                                      fontSize: "16px",
                                       fontWeight: "600",
-                                      backgroundColor: pr.isDraft
-                                        ? "#ffd700"
-                                        : "#107c10",
-                                      color: pr.isDraft ? "#000" : "#fff",
+                                      color: "#323130",
+                                      marginBottom: "4px",
                                     }}
                                   >
-                                    {pr.isDraft ? "DRAFT" : "ACTIVE"}
-                                  </span>
-                                  {(
-                                    pr as GitPullRequest & {
-                                      buildStatus?: {
-                                        id: number;
-                                        status: string;
-                                        result: string;
-                                        url: string;
-                                      };
-                                    }
-                                  ).buildStatus && (
-                                    <>
-                                      <span>•</span>
-                                      <span
-                                        style={{
-                                          padding: "2px 6px",
-                                          borderRadius: "4px",
-                                          fontSize: "10px",
-                                          fontWeight: "600",
-                                          backgroundColor:
-                                            (
-                                              pr as GitPullRequest & {
-                                                buildStatus?: {
-                                                  id: number;
-                                                  status: string;
-                                                  result: string;
-                                                  url: string;
-                                                };
-                                              }
-                                            ).buildStatus?.result ===
-                                            "succeeded"
-                                              ? "#107c10"
-                                              : (
-                                                  pr as GitPullRequest & {
-                                                    buildStatus?: {
-                                                      id: number;
-                                                      status: string;
-                                                      result: string;
-                                                      url: string;
-                                                    };
-                                                  }
-                                                ).buildStatus?.result ===
-                                                "failed"
-                                              ? "#d13438"
-                                              : "#ff8c00",
-                                          color: "#fff",
-                                        }}
-                                      >
-                                        BUILD{" "}
-                                        {(
-                                          pr as GitPullRequest & {
-                                            buildStatus?: {
-                                              id: number;
-                                              status: string;
-                                              result: string;
-                                              url: string;
-                                            };
-                                          }
-                                        ).buildStatus?.result?.toUpperCase() ||
-                                          "UNKNOWN"}
-                                      </span>
-                                    </>
-                                  )}
+                                    {pr.repository?.name} -{" "}
+                                    {pr.sourceRefName?.replace(
+                                      "refs/heads/",
+                                      ""
+                                    )}{" "}
+                                    →{" "}
+                                    {pr.targetRefName?.replace(
+                                      "refs/heads/",
+                                      ""
+                                    )}
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: "12px",
+                                      color: "#666",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "12px",
+                                      flexWrap: "wrap",
+                                    }}
+                                  >
+                                    <span>
+                                      Status:{" "}
+                                      {this.getStatusText(pr.status || 0)}
+                                    </span>
+                                    <span>•</span>
+                                    <span>ID: #{pr.pullRequestId}</span>
+                                    <span>•</span>
+                                    <span
+                                      style={{
+                                        padding: "2px 6px",
+                                        borderRadius: "4px",
+                                        fontSize: "10px",
+                                        fontWeight: "600",
+                                        backgroundColor: pr.isDraft
+                                          ? "#ffd700"
+                                          : "#107c10",
+                                        color: pr.isDraft ? "#000" : "#fff",
+                                      }}
+                                    >
+                                      {pr.isDraft ? "DRAFT" : "ACTIVE"}
+                                    </span>
+                                    {(
+                                      pr as GitPullRequest & {
+                                        buildStatus?: {
+                                          id: number;
+                                          status: string;
+                                          result: string;
+                                          url: string;
+                                        };
+                                      }
+                                    ).buildStatus && (
+                                      <>
+                                        <span>•</span>
+                                        <span
+                                          style={{
+                                            padding: "2px 6px",
+                                            borderRadius: "4px",
+                                            fontSize: "10px",
+                                            fontWeight: "600",
+                                            backgroundColor:
+                                              (
+                                                pr as GitPullRequest & {
+                                                  buildStatus?: {
+                                                    id: number;
+                                                    status: string;
+                                                    result: string;
+                                                    url: string;
+                                                  };
+                                                }
+                                              ).buildStatus?.result ===
+                                              "succeeded"
+                                                ? "#107c10"
+                                                : (
+                                                    pr as GitPullRequest & {
+                                                      buildStatus?: {
+                                                        id: number;
+                                                        status: string;
+                                                        result: string;
+                                                        url: string;
+                                                      };
+                                                    }
+                                                  ).buildStatus?.result ===
+                                                  "failed"
+                                                ? "#d13438"
+                                                : "#ff8c00",
+                                            color: "#fff",
+                                          }}
+                                        >
+                                          BUILD{" "}
+                                          {(
+                                            pr as GitPullRequest & {
+                                              buildStatus?: {
+                                                id: number;
+                                                status: string;
+                                                result: string;
+                                                url: string;
+                                              };
+                                            }
+                                          ).buildStatus?.result?.toUpperCase() ||
+                                            "UNKNOWN"}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
 
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                              }}
-                            >
-                              <Button
-                                text="Update from master"
-                                iconProps={{ iconName: "BranchPullRequest" }}
-                                onClick={(event) => {
-                                  event.stopPropagation(); // Prevent navigation to PR
-                                  const repoName = pr.repository?.name;
-                                  if (repoName) {
-                                    const repo = repos.find(
-                                      (r) => r.name === repoName
-                                    );
-                                    if (repo) {
-                                      this.createUpdatePRFromMaster(
-                                        repo,
-                                        pr.sourceRefName
-                                      );
-                                    }
-                                  }
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
                                 }}
-                                primary={false}
-                              />
-                              <Icon
-                                iconName="ChevronRight"
-                                style={{ color: "#666", fontSize: "12px" }}
-                              />
+                              >
+                                <Button
+                                  text="Update from master"
+                                  iconProps={{ iconName: "BranchPullRequest" }}
+                                  onClick={(event) => {
+                                    event.stopPropagation(); // Prevent navigation to PR
+                                    const repoName = pr.repository?.name;
+                                    if (repoName) {
+                                      const repo = repos.find(
+                                        (r) => r.name === repoName
+                                      );
+                                      if (repo) {
+                                        this.createUpdatePRFromMaster(
+                                          repo,
+                                          pr.sourceRefName
+                                        );
+                                      }
+                                    }
+                                  }}
+                                  primary={false}
+                                />
+                                <Icon
+                                  iconName="ChevronRight"
+                                  style={{ color: "#666", fontSize: "12px" }}
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                     </div>
                   ))}
