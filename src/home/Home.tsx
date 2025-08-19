@@ -250,7 +250,7 @@ export class HomePage extends React.Component<object, HomePageState> {
         }
 
         const repositories = await this.gitClient.getRepositories(
-          projectInfo.name
+          projectInfo.id || projectInfo.name
         );
         const repoCount = repositories?.length || 0;
 
