@@ -247,11 +247,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         repos: repos,
         loading: false,
       });
-
-      await this.showToast(
-        `✅ Repository permissions verified! Found ${repos.length} repositories.`,
-        "success"
-      );
     } catch (error: unknown) {
       let message = "Failed to load repositories";
       let isPermissionError = false;
@@ -325,18 +320,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         pullRequests: allPullRequests,
         groupedPullRequests,
       });
-
-      if (allPullRequests.length > 0) {
-        await this.showToast(
-          `✅ Pull Request permissions verified! Found ${allPullRequests.length} active pull requests.`,
-          "success"
-        );
-      } else {
-        await this.showToast(
-          "✅ Pull Request access verified, but no active pull requests found.",
-          "info"
-        );
-      }
     } catch (error: unknown) {
       console.error("Failed to load pull requests:", error);
       const errorMessage =
@@ -554,18 +537,6 @@ export class HomePage extends React.Component<object, HomePageState> {
           minHeight: "100vh",
         }}
       >
-        <div style={{}}>
-          <h1
-            className="title-large"
-            style={{
-              margin: 0,
-              color: "#323130",
-            }}
-          >
-            Repo Pulse
-          </h1>
-        </div>
-
         <div style={{ padding: "24px" }}>
           {/* Tab Navigation */}
           <div
@@ -733,7 +704,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   ""
                                 ) || "None"}
                               </span>
-                              <span>•</span>
                             </div>
                           </div>
                         </div>
