@@ -9,13 +9,11 @@ import {
   GitRepository,
   GitPullRequest,
   PullRequestStatus,
-  GitPullRequestSearchCriteria,
 } from "azure-devops-extension-api/Git";
 import {
   CommonServiceIds,
   IGlobalMessagesService,
   IToast,
-  IProjectPageService,
 } from "azure-devops-extension-api";
 
 interface HomePageState {
@@ -40,10 +38,8 @@ export class HomePage extends React.Component<object, HomePageState> {
   };
 
   private CORE_AREA_ID = "79134c72-4a58-4b42-976c-04e7115f32bf";
-  private GIT_REPOSITORIES_SECURITY_NAMESPACE =
-    "2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87";
+
   private gitClient: GitRestClient | null = null;
-  private projectService: IProjectPageService | null = null;
 
   public async getOrganizationBaseUrl(): Promise<string> {
     const loc = await SDK.getService<ILocationService>(
@@ -59,11 +55,6 @@ export class HomePage extends React.Component<object, HomePageState> {
     try {
       // Initialize Git REST client
       this.gitClient = getClient(GitRestClient);
-
-      // Initialize Project service
-      this.projectService = await SDK.getService<IProjectPageService>(
-        CommonServiceIds.ProjectPageService
-      );
     } catch (error) {
       console.error("Failed to initialize SDK clients:", error);
       throw error;
@@ -96,7 +87,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       return null;
     } catch (error) {
-      console.error("DEBUG - Error extracting project from URL:", error);
+      console.error("Error extracting project from URL:", error);
       return null;
     }
   }
@@ -122,24 +113,6 @@ export class HomePage extends React.Component<object, HomePageState> {
 
     return null;
   }
-
-  /**
-   * Handle manual project name submission
-   */
-  private handleProjectSubmit = async () => {
-    if (!this.state.manualProjectName.trim()) {
-      await this.showToast("Please enter a project name", "error");
-      return;
-    }
-
-    this.setState({ showProjectInput: false, loading: true });
-    await this.showToast("Connecting to project...", "info");
-
-    // Retry the operations with the manual project name
-    await this.checkPermissions();
-    this.loadRepositories();
-    this.loadPullRequests();
-  };
 
   constructor(props: object) {
     super(props);
@@ -167,8 +140,8 @@ export class HomePage extends React.Component<object, HomePageState> {
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       await this.checkPermissions();
-      this.loadRepositories();
-      this.loadPullRequests();
+      await this.loadRepositories();
+      await this.loadPullRequests();
     } catch (error) {
       console.error("Extension initialization failed:", error);
       await this.showToast("Failed to initialize extension", "error");
@@ -266,7 +239,9 @@ export class HomePage extends React.Component<object, HomePageState> {
       }
 
       // Use SDK client instead of REST API call
-      const repos = await this.gitClient.getRepositories(projectInfo?.name);
+      const repos = await this.gitClient.getRepositories(
+        projectInfo?.id || projectInfo?.name
+      );
 
       this.setState({
         repos: repos,
@@ -338,7 +313,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       };
 
       const allPullRequests = await this.gitClient.getPullRequestsByProject(
-        projectInfo.name,
+        projectInfo.id || projectInfo.name,
         searchCriteria as any
       );
 
@@ -579,107 +554,17 @@ export class HomePage extends React.Component<object, HomePageState> {
           minHeight: "100vh",
         }}
       >
-        <div
-          style={{
-            backgroundColor: "white",
-            borderBottom: "1px solid #e1e1e1",
-            padding: "16px 24px",
-          }}
-        >
+        <div style={{}}>
           <h1
+            className="title-large"
             style={{
               margin: 0,
-              fontSize: "24px",
-              fontWeight: "600",
               color: "#323130",
             }}
           >
             Repo Pulse
           </h1>
         </div>
-
-        {/* Manual Project Input Panel */}
-        {this.state.showProjectInput && (
-          <div
-            style={{
-              margin: "16px 24px",
-              padding: "20px",
-              backgroundColor: "#fff8dc",
-              border: "2px solid #ffd700",
-              borderRadius: "6px",
-              fontSize: "14px",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                marginBottom: "12px",
-                fontSize: "16px",
-                fontWeight: "600",
-                color: "#b8860b",
-              }}
-            >
-              <Icon
-                iconName="Info"
-                style={{ marginRight: "8px", color: "#ffd700" }}
-              />
-              Manual Project Entry Required
-            </div>
-
-            <p style={{ margin: "0 0 16px 0", color: "#666" }}>
-              The extension couldn't automatically detect your project context.
-              This usually happens when:
-            </p>
-            <ul
-              style={{
-                margin: "0 0 16px 0",
-                paddingLeft: "20px",
-                color: "#666",
-              }}
-            >
-              <li>Extension is not properly installed in project scope</li>
-              <li>Loading from gallery URL instead of project context</li>
-              <li>
-                Running on Azure DevOps Server with limited context sharing
-              </li>
-            </ul>
-            <p style={{ margin: "0 0 16px 0", color: "#666" }}>
-              <strong>
-                Please enter your Azure DevOps project name manually:
-              </strong>
-            </p>
-
-            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-              <input
-                type="text"
-                placeholder="Enter project name (e.g., MyProject)"
-                value={this.state.manualProjectName}
-                onChange={(e) =>
-                  this.setState({ manualProjectName: e.target.value })
-                }
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    this.handleProjectSubmit();
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: "8px 12px",
-                  border: "1px solid #ccc",
-                  borderRadius: "4px",
-                  fontSize: "14px",
-                }}
-              />
-              <Button
-                text="Connect"
-                primary={true}
-                onClick={this.handleProjectSubmit}
-                disabled={!this.state.manualProjectName.trim()}
-              />
-            </div>
-          </div>
-        )}
 
         <div style={{ padding: "24px" }}>
           {/* Tab Navigation */}
@@ -692,6 +577,7 @@ export class HomePage extends React.Component<object, HomePageState> {
             }}
           >
             <button
+              className="body-medium"
               style={{
                 padding: "12px 24px",
                 border: "none",
@@ -704,13 +590,13 @@ export class HomePage extends React.Component<object, HomePageState> {
                     ? "2px solid #0078d4"
                     : "2px solid transparent",
                 fontWeight: selectedTabId === "repositories" ? "600" : "400",
-                fontSize: "14px",
               }}
               onClick={() => this.onTabChanged("repositories")}
             >
               Repositories ({repos.length})
             </button>
             <button
+              className="body-medium"
               style={{
                 padding: "12px 24px",
                 border: "none",
@@ -723,7 +609,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                     ? "2px solid #0078d4"
                     : "2px solid transparent",
                 fontWeight: selectedTabId === "pullrequests" ? "600" : "400",
-                fontSize: "14px",
               }}
               onClick={() => this.onTabChanged("pullrequests")}
             >
@@ -735,11 +620,11 @@ export class HomePage extends React.Component<object, HomePageState> {
             <div>
               {loading && (
                 <div
+                  className="body-medium"
                   style={{
                     textAlign: "center",
                     padding: "40px",
                     color: "#666",
-                    fontSize: "14px",
                   }}
                 >
                   Loading repositories...
@@ -748,13 +633,13 @@ export class HomePage extends React.Component<object, HomePageState> {
 
               {error && (
                 <div
+                  className="body-medium"
                   style={{
                     backgroundColor: "#fde7e9",
                     border: "1px solid #f1707b",
                     borderRadius: "4px",
                     padding: "12px 16px",
                     color: "#d13438",
-                    fontSize: "14px",
                   }}
                 >
                   {error}
@@ -806,6 +691,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                           }}
                         >
                           <div
+                            className="body-medium"
                             style={{
                               width: "32px",
                               height: "32px",
@@ -816,7 +702,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                               justifyContent: "center",
                               color: "white",
                               fontWeight: "600",
-                              fontSize: "14px",
                             }}
                           >
                             {repo.name.charAt(0).toUpperCase()}
@@ -824,9 +709,8 @@ export class HomePage extends React.Component<object, HomePageState> {
 
                           <div style={{ flex: 1 }}>
                             <div
+                              className="title-small"
                               style={{
-                                fontSize: "16px",
-                                fontWeight: "600",
                                 color: "#323130",
                                 marginBottom: "4px",
                               }}
@@ -834,8 +718,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                               {repo.name}
                             </div>
                             <div
+                              className="body-small"
                               style={{
-                                fontSize: "12px",
                                 color: "#666",
                                 display: "flex",
                                 alignItems: "center",
@@ -850,12 +734,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                 ) || "None"}
                               </span>
                               <span>•</span>
-                              <span>
-                                Size:{" "}
-                                {repo.size
-                                  ? `${Math.round(repo.size / 1024)} KB`
-                                  : "Unknown"}
-                              </span>
                             </div>
                           </div>
                         </div>
@@ -891,11 +769,11 @@ export class HomePage extends React.Component<object, HomePageState> {
             <div>
               {loading && (
                 <div
+                  className="body-medium"
                   style={{
                     textAlign: "center",
                     padding: "40px",
                     color: "#666",
-                    fontSize: "14px",
                   }}
                 >
                   Loading pull requests...
@@ -936,10 +814,9 @@ export class HomePage extends React.Component<object, HomePageState> {
                             style={{ color: "#0078d4", fontSize: "16px" }}
                           />
                           <h3
+                            className="title-small"
                             style={{
                               margin: 0,
-                              fontSize: "16px",
-                              fontWeight: "600",
                               color: "#323130",
                             }}
                           >
@@ -985,7 +862,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                 const projectInfo = this.getProjectInfo();
 
                                 if (projectInfo?.name) {
-                                  const prUrl = `${this.config.azureDevOpsBaseUrl}/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                                  const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
                                   window.open(prUrl, "_blank");
                                 }
                               }}
@@ -1194,15 +1071,15 @@ export class HomePage extends React.Component<object, HomePageState> {
                     }}
                   />
                   <div
+                    className="title-small"
                     style={{
-                      fontSize: "16px",
                       fontWeight: "500",
                       marginBottom: "8px",
                     }}
                   >
                     No active pull requests found
                   </div>
-                  <div style={{ fontSize: "14px", color: "#999" }}>
+                  <div className="body-medium" style={{ color: "#999" }}>
                     Pull requests will appear here when they are created
                   </div>
                 </div>
