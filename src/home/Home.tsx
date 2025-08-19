@@ -202,11 +202,6 @@ export class HomePage extends React.Component<object, HomePageState> {
           );
         }
       }
-
-      await this.showToast(
-        "🔍 Checking Azure DevOps permissions via SDK...",
-        "info"
-      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
