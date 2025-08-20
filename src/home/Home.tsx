@@ -9,7 +9,15 @@ import {
   GitRepository,
   GitPullRequest,
   PullRequestStatus,
+  GitPullRequestSearchCriteria,
 } from "azure-devops-extension-api/Git";
+import {
+  BuildRestClient,
+  Build,
+  BuildStatus,
+  BuildResult,
+  BuildDefinitionReference,
+} from "azure-devops-extension-api/Build";
 import {
   CommonServiceIds,
   IGlobalMessagesService,
@@ -23,6 +31,16 @@ interface HomePageState {
   error?: string;
   selectedTabId: string;
   groupedPullRequests: Record<string, GitPullRequest[]>;
+  buildStatuses: Record<string, RepositoryBuildStatus>;
+}
+
+interface RepositoryBuildStatus {
+  status: BuildStatus;
+  result?: BuildResult;
+  finishTime?: Date;
+  startTime?: Date;
+  buildNumber?: string;
+  isLoading: boolean;
 }
 
 interface HomePageConfig {
@@ -37,6 +55,7 @@ export class HomePage extends React.Component<object, HomePageState> {
   private CORE_AREA_ID = "79134c72-4a58-4b42-976c-04e7115f32bf";
 
   private gitClient: GitRestClient | null = null;
+  private buildClient: BuildRestClient | null = null;
 
   public async getOrganizationBaseUrl(): Promise<string> {
     const loc = await SDK.getService<ILocationService>(
@@ -45,12 +64,10 @@ export class HomePage extends React.Component<object, HomePageState> {
     return await loc.getResourceAreaLocation(this.CORE_AREA_ID);
   }
 
-  /**
-   * Initialize Azure DevOps SDK clients
-   */
   private async initializeSDKClients(): Promise<void> {
     try {
       this.gitClient = getClient(GitRestClient);
+      this.buildClient = getClient(BuildRestClient);
     } catch (error) {
       console.error("Failed to initialize SDK clients:", error);
       throw error;
@@ -111,6 +128,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       loading: true,
       selectedTabId: "repositories",
       groupedPullRequests: {},
+      buildStatuses: {},
     };
   }
 
@@ -215,7 +233,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         throw new Error("Git client not initialized");
       }
 
-      // Use SDK client instead of REST API call
       const repos = await this.gitClient.getRepositories(
         projectInfo?.id || projectInfo?.name
       );
@@ -224,6 +241,8 @@ export class HomePage extends React.Component<object, HomePageState> {
         repos: repos,
         loading: false,
       });
+
+      this.loadBuildStatusesForRepositories(repos, projectInfo);
     } catch (error: unknown) {
       let message = "Failed to load repositories";
       let isPermissionError = false;
@@ -260,6 +279,121 @@ export class HomePage extends React.Component<object, HomePageState> {
           `Failed to load repositories: ${message}`,
           "error"
         );
+      }
+    }
+  }
+
+  private async loadBuildStatusesForRepositories(
+    repos: GitRepository[],
+    projectInfo: { id?: string; name?: string } | null
+  ) {
+    if (!projectInfo?.name || !this.buildClient) {
+      return;
+    }
+
+    const initialBuildStatuses: Record<string, RepositoryBuildStatus> = {};
+    repos.forEach((repo) => {
+      if (repo.id) {
+        initialBuildStatuses[repo.id] = {
+          status: BuildStatus.None,
+          isLoading: true,
+        };
+      }
+    });
+
+    this.setState((prevState) => ({
+      buildStatuses: { ...prevState.buildStatuses, ...initialBuildStatuses },
+    }));
+
+    const buildStatusPromises = repos.map((repo) =>
+      this.loadBuildStatusForRepository(repo, projectInfo.name!)
+    );
+
+    await Promise.allSettled(buildStatusPromises);
+  }
+
+  private async loadBuildStatusForRepository(
+    repo: GitRepository,
+    projectName: string
+  ) {
+    try {
+      if (!this.buildClient || !repo.id) {
+        return;
+      }
+
+      // Get build defiitions for this repository that might be PR validation
+      const definitions = await this.buildClient.getDefinitions(
+        projectName,
+        undefined, // name
+        repo.id, // repositoryId
+        undefined, // repositoryType
+        undefined, // queryOrder
+        undefined, // top
+        undefined, // continuationToken
+        undefined, // minMetricsTime
+        undefined, // definitionIds
+        undefined, // path
+        undefined, // builtAfter
+        undefined, // notBuiltAfter
+        false, // includeAllProperties
+        true // includeLatestBuilds
+      );
+
+      const prValidationDef = definitions.find(
+        (def) =>
+          def.path?.includes("pr-validation.yml") ||
+          def.path?.includes("azure-pipelines.yml")
+      );
+
+      if (prValidationDef && prValidationDef.id) {
+        const builds = await this.buildClient.getBuilds(
+          projectName,
+          [prValidationDef.id], // definitions
+          undefined, // queues
+          undefined, // buildNumber
+          undefined, // minTime
+          undefined, // maxTime
+          undefined, // requestedFor
+          undefined, // reasonFilter
+          undefined, // statusFilter
+          undefined, // resultFilter
+          undefined, // tagFilters
+          undefined, // properties
+          1 // top - get only the latest build
+        );
+
+        if (builds.length > 0) {
+          const latestBuild = builds[0];
+          const buildStatus: RepositoryBuildStatus = {
+            status: latestBuild.status,
+            result: latestBuild.result,
+            finishTime: latestBuild.finishTime,
+            startTime: latestBuild.startTime,
+            buildNumber: latestBuild.buildNumber,
+            isLoading: false,
+          };
+
+          this.setState((prevState) => ({
+            buildStatuses: {
+              ...prevState.buildStatuses,
+              [repo.id!]: buildStatus,
+            },
+          }));
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to load build status for ${repo.name}:`, error);
+
+      if (repo.id) {
+        this.setState((prevState) => ({
+          buildStatuses: {
+            ...prevState.buildStatuses,
+            [repo.id!]: {
+              status: BuildStatus.None,
+              isLoading: false,
+            },
+          },
+        }));
       }
     }
   }
@@ -375,6 +509,84 @@ export class HomePage extends React.Component<object, HomePageState> {
       default:
         return "#666666"; // Gray for unknown
     }
+  };
+
+  private getBuildStatusColor = (
+    status: BuildStatus,
+    result?: BuildResult
+  ): string => {
+    if (status === BuildStatus.InProgress) {
+      return "#0078d4"; // Blue for in progress
+    }
+
+    if (status === BuildStatus.Completed && result) {
+      switch (result) {
+        case BuildResult.Succeeded:
+          return "#107c10"; // Green for success
+        case BuildResult.Failed:
+          return "#d13438"; // Red for failed
+        case BuildResult.PartiallySucceeded:
+          return "#ff8c00"; // Orange for partially succeeded
+        case BuildResult.Canceled:
+          return "#666666"; // Gray for canceled
+        default:
+          return "#666666";
+      }
+    }
+
+    return "#cccccc"; // Light gray for unknown/none
+  };
+
+  private getBuildStatusText = (
+    status: BuildStatus,
+    result?: BuildResult
+  ): string => {
+    if (status === BuildStatus.InProgress) {
+      return "In Progress";
+    }
+
+    if (status === BuildStatus.Completed && result) {
+      switch (result) {
+        case BuildResult.Succeeded:
+          return "Succeeded";
+        case BuildResult.Failed:
+          return "Failed";
+        case BuildResult.PartiallySucceeded:
+          return "Partial";
+        case BuildResult.Canceled:
+          return "Canceled";
+        default:
+          return "Unknown";
+      }
+    }
+
+    return "No builds";
+  };
+
+  private getBuildStatusIcon = (
+    status: BuildStatus,
+    result?: BuildResult
+  ): string => {
+    if (status === BuildStatus.InProgress) {
+      return "PlaySolid";
+    }
+
+    if (status === BuildStatus.Completed && result) {
+      switch (result) {
+        case BuildResult.Succeeded:
+          return "CheckMark";
+        case BuildResult.Failed:
+          return "Error";
+        case BuildResult.PartiallySucceeded:
+          return "Warning";
+        case BuildResult.Canceled:
+          return "Cancel";
+        default:
+          return "Unknown";
+      }
+    }
+
+    return "BuildDefinition";
   };
 
   private openRepository = (repo: GitRepository) => {
@@ -498,6 +710,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       error,
       selectedTabId,
       groupedPullRequests,
+      buildStatuses,
     } = this.state;
 
     return (
@@ -666,6 +879,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                 display: "flex",
                                 alignItems: "center",
                                 gap: "12px",
+                                flexWrap: "wrap",
                               }}
                             >
                               <span>
@@ -675,6 +889,53 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   ""
                                 ) || "None"}
                               </span>
+                              <span>•</span>
+                              <span>
+                                Size:{" "}
+                                {repo.size
+                                  ? `${Math.round(repo.size / 1024)} KB`
+                                  : "Unknown"}
+                              </span>
+                              {repo.id && buildStatuses[repo.id] && (
+                                <>
+                                  <span>•</span>
+                                  <span
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      color: this.getBuildStatusColor(
+                                        buildStatuses[repo.id].status,
+                                        buildStatuses[repo.id].result
+                                      ),
+                                    }}
+                                  >
+                                    <Icon
+                                      iconName={this.getBuildStatusIcon(
+                                        buildStatuses[repo.id].status,
+                                        buildStatuses[repo.id].result
+                                      )}
+                                      style={{ fontSize: "10px" }}
+                                    />
+                                    {buildStatuses[repo.id].isLoading
+                                      ? "Loading..."
+                                      : this.getBuildStatusText(
+                                          buildStatuses[repo.id].status,
+                                          buildStatuses[repo.id].result
+                                        )}
+                                    {buildStatuses[repo.id].buildNumber && (
+                                      <span
+                                        style={{
+                                          fontSize: "9px",
+                                          opacity: 0.7,
+                                        }}
+                                      >
+                                        #{buildStatuses[repo.id].buildNumber}
+                                      </span>
+                                    )}
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
