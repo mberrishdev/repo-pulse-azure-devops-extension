@@ -426,27 +426,32 @@ export class HomePage extends React.Component<object, HomePageState> {
           console.log(
             `[BUILD DEBUG] No definitions to process for ${repo.name}`
           );
+          // Set loading to false for repositories with no definitions
+          this.setState((prevState) => ({
+            buildStatuses: {
+              ...prevState.buildStatuses,
+              [repo.id!]: {
+                status: BuildStatus.None,
+                isLoading: false,
+              },
+            },
+          }));
           return;
         }
 
-        // Look for CI/PR validation definitions
-        const prValidationDef = definitions.find((def) => {
-          const isCi =
-            def.name?.toLowerCase().includes("ci") ||
-            def.name?.toLowerCase().includes("pr") ||
-            def.name?.toLowerCase().includes("validation") ||
-            def.name?.toLowerCase().includes("build");
-
-          console.log(
-            `🔍 [BUILD DEBUG] Checking if "${def.name}" is CI/PR definition: ${isCi}`
-          );
-          return isCi;
-        });
+        const prValidationDef = definitions[0];
 
         if (!prValidationDef?.id) {
-          console.log(
-            `[BUILD DEBUG] No CI/PR validation definition found for ${repo.name}`
-          );
+          console.log(`[BUILD DEBUG] No definition found for ${repo.name}`);
+          this.setState((prevState) => ({
+            buildStatuses: {
+              ...prevState.buildStatuses,
+              [repo.id!]: {
+                status: BuildStatus.None,
+                isLoading: false,
+              },
+            },
+          }));
           return;
         }
 
@@ -498,12 +503,36 @@ export class HomePage extends React.Component<object, HomePageState> {
                 [repo.id!]: buildStatus,
               },
             }));
+          } else {
+            // No builds found for this definition
+            console.log(
+              `[BUILD DEBUG] No builds found for definition ${prValidationDef.name} in ${repo.name}`
+            );
+            this.setState((prevState) => ({
+              buildStatuses: {
+                ...prevState.buildStatuses,
+                [repo.id!]: {
+                  status: BuildStatus.None,
+                  isLoading: false,
+                },
+              },
+            }));
           }
         } catch (buildError) {
           console.error(
             `❌ [BUILD DEBUG] Failed to load builds for ${repo.name}:`,
             buildError
           );
+          // Set loading to false even on error
+          this.setState((prevState) => ({
+            buildStatuses: {
+              ...prevState.buildStatuses,
+              [repo.id!]: {
+                status: BuildStatus.None,
+                isLoading: false,
+              },
+            },
+          }));
         }
       });
 
@@ -1141,13 +1170,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   "refs/heads/",
                                   ""
                                 ) || "None"}
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Size:{" "}
-                                {repo.size
-                                  ? `${Math.round(repo.size / 1024)} KB`
-                                  : "Unknown"}
                               </span>
                               {repo.id && buildStatuses[repo.id] && (
                                 <>
