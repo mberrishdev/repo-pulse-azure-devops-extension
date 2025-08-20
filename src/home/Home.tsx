@@ -305,11 +305,218 @@ export class HomePage extends React.Component<object, HomePageState> {
       buildStatuses: { ...prevState.buildStatuses, ...initialBuildStatuses },
     }));
 
-    const buildStatusPromises = repos.map((repo) =>
-      this.loadBuildStatusForRepository(repo, projectInfo.name!)
-    );
+    await this.loadAllBuildDefinitionsAndMapToRepos(repos, projectInfo.name!);
+  }
 
-    await Promise.allSettled(buildStatusPromises);
+  private async loadAllBuildDefinitionsAndMapToRepos(
+    repos: GitRepository[],
+    projectName: string
+  ) {
+    try {
+      console.log(
+        `🚀 [BUILD DEBUG] Loading all build definitions for project ${projectName}...`
+      );
+
+      if (!this.buildClient) {
+        console.log(`❌ [BUILD DEBUG] No build client available`);
+        return;
+      }
+
+      const allDefinitions = await this.buildClient.getDefinitions(
+        projectName,
+        undefined, // name
+        undefined, // repositoryId
+        undefined, // repositoryType
+        undefined, // queryOrder
+        undefined, // top
+        undefined, // continuationToken
+        undefined, // minMetricsTime
+        undefined, // definitionIds
+        undefined, // path
+        undefined, // builtAfter
+        undefined, // notBuiltAfter
+        true, // includeAllProperties - this might give us repository info
+        true // includeLatestBuilds
+      );
+
+      console.log(
+        `📋 [BUILD DEBUG] Found ${allDefinitions.length} total build definitions in project`
+      );
+
+      if (allDefinitions.length > 0) {
+        console.log(`🔍 [BUILD DEBUG] Sample definition structure:`, {
+          keys: Object.keys(allDefinitions[0]),
+          definition: allDefinitions[0],
+        });
+      }
+
+      const definitionsByRepo = new Map<string, any[]>();
+
+      for (const repo of repos) {
+        // For now, let's get all CI/PR-like definitions and check them individually
+        const potentialDefinitions = allDefinitions.filter((def) => {
+          const isCiLike =
+            def.name?.toLowerCase().includes("ci") ||
+            def.name?.toLowerCase().includes("pr") ||
+            def.name?.toLowerCase().includes("validation") ||
+            def.name?.toLowerCase().includes("build") ||
+            def.name?.toLowerCase().includes(repo.name?.toLowerCase() || "");
+
+          console.log(
+            `🔍 [BUILD DEBUG] Checking if definition "${def.name}" is CI-like for repo ${repo.name}: ${isCiLike}`
+          );
+          return isCiLike;
+        });
+
+        const repoDefinitions = [];
+        for (const def of potentialDefinitions) {
+          try {
+            console.log(
+              `🔍 [BUILD DEBUG] Getting full definition for "${def.name}" (ID: ${def.id})...`
+            );
+            const fullDefinition = await this.buildClient!.getDefinition(
+              projectName,
+              def.id
+            );
+
+            console.log(`🔍 [BUILD DEBUG] Full definition for "${def.name}":`, {
+              hasRepository: !!fullDefinition.repository,
+              repositoryId: fullDefinition.repository?.id,
+              repositoryName: fullDefinition.repository?.name,
+              matchesRepo:
+                fullDefinition.repository?.id === repo.id ||
+                fullDefinition.repository?.name === repo.name,
+            });
+
+            if (
+              fullDefinition.repository?.id === repo.id ||
+              fullDefinition.repository?.name === repo.name
+            ) {
+              repoDefinitions.push(fullDefinition);
+              console.log(
+                `[BUILD DEBUG] Definition "${def.name}" matches repository ${repo.name}`
+              );
+            }
+          } catch (error) {
+            console.log(
+              `[BUILD DEBUG] Failed to get full definition for "${def.name}":`,
+              error
+            );
+          }
+        }
+
+        if (repoDefinitions.length > 0) {
+          definitionsByRepo.set(repo.id!, repoDefinitions);
+          console.log(
+            `[BUILD DEBUG] Found ${repoDefinitions.length} definitions for ${repo.name}`
+          );
+        } else {
+          console.log(
+            `[BUILD DEBUG] No matching definitions found for ${repo.name}`
+          );
+        }
+      }
+
+      // Process each repository's definitions
+      const processPromises = repos.map(async (repo) => {
+        if (!repo.id) return;
+
+        const definitions = definitionsByRepo.get(repo.id);
+        if (!definitions || definitions.length === 0) {
+          console.log(
+            `[BUILD DEBUG] No definitions to process for ${repo.name}`
+          );
+          return;
+        }
+
+        // Look for CI/PR validation definitions
+        const prValidationDef = definitions.find((def) => {
+          const isCi =
+            def.name?.toLowerCase().includes("ci") ||
+            def.name?.toLowerCase().includes("pr") ||
+            def.name?.toLowerCase().includes("validation") ||
+            def.name?.toLowerCase().includes("build");
+
+          console.log(
+            `🔍 [BUILD DEBUG] Checking if "${def.name}" is CI/PR definition: ${isCi}`
+          );
+          return isCi;
+        });
+
+        if (!prValidationDef?.id) {
+          console.log(
+            `[BUILD DEBUG] No CI/PR validation definition found for ${repo.name}`
+          );
+          return;
+        }
+
+        console.log(
+          `[BUILD DEBUG] Found CI definition "${prValidationDef.name}" for ${repo.name}`
+        );
+
+        try {
+          // Get latest builds for this definition
+          const builds = await this.buildClient!.getBuilds(
+            projectName,
+            [prValidationDef.id],
+            undefined, // queues
+            undefined, // buildNumber
+            undefined, // minTime
+            undefined, // maxTime
+            undefined, // requestedFor
+            undefined, // reasonFilter
+            undefined, // statusFilter
+            undefined, // resultFilter
+            undefined, // tagFilters
+            undefined, // properties
+            1 // top - get only the latest build
+          );
+
+          console.log(
+            `📋 [BUILD DEBUG] Found ${builds.length} builds for ${repo.name}`
+          );
+
+          if (builds.length > 0) {
+            const latestBuild = builds[0];
+            const buildStatus: RepositoryBuildStatus = {
+              status: latestBuild.status,
+              result: latestBuild.result,
+              finishTime: latestBuild.finishTime,
+              startTime: latestBuild.startTime,
+              buildNumber: latestBuild.buildNumber,
+              isLoading: false,
+            };
+
+            console.log(
+              `[BUILD DEBUG] Build status loaded for ${repo.name}:`,
+              buildStatus
+            );
+
+            this.setState((prevState) => ({
+              buildStatuses: {
+                ...prevState.buildStatuses,
+                [repo.id!]: buildStatus,
+              },
+            }));
+          }
+        } catch (buildError) {
+          console.error(
+            `❌ [BUILD DEBUG] Failed to load builds for ${repo.name}:`,
+            buildError
+          );
+        }
+      });
+
+      await Promise.allSettled(processPromises);
+      console.log(
+        `🏁 [BUILD DEBUG] Finished processing build statuses for all repositories`
+      );
+    } catch (error) {
+      console.error(
+        `❌ [BUILD DEBUG] Failed to load build definitions:`,
+        error
+      );
+    }
   }
 
   private async loadBuildStatusForRepository(
