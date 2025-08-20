@@ -23,9 +23,6 @@ interface HomePageState {
   error?: string;
   selectedTabId: string;
   groupedPullRequests: Record<string, GitPullRequest[]>;
-
-  showProjectInput: boolean;
-  manualProjectName: string;
 }
 
 interface HomePageConfig {
@@ -53,7 +50,6 @@ export class HomePage extends React.Component<object, HomePageState> {
    */
   private async initializeSDKClients(): Promise<void> {
     try {
-      // Initialize Git REST client
       this.gitClient = getClient(GitRestClient);
     } catch (error) {
       console.error("Failed to initialize SDK clients:", error);
@@ -95,20 +91,13 @@ export class HomePage extends React.Component<object, HomePageState> {
   private getProjectInfo(): { id?: string; name?: string } | null {
     const webContext = SDK.getWebContext();
 
-    // Try webContext first
     if (webContext.project?.id) {
       return webContext.project;
     }
 
-    // Try URL extraction
     const urlProject = this.getProjectFromUrl();
     if (urlProject?.name) {
       return urlProject;
-    }
-
-    // Finally, check if user has provided manual input
-    if (this.state.manualProjectName.trim()) {
-      return { name: this.state.manualProjectName.trim() };
     }
 
     return null;
@@ -122,9 +111,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       loading: true,
       selectedTabId: "repositories",
       groupedPullRequests: {},
-
-      showProjectInput: false,
-      manualProjectName: "",
     };
   }
 
@@ -136,7 +122,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       await this.initializeConfig();
       await this.initializeSDKClients();
 
-      // Wait a bit for the SDK to fully initialize context
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       await this.checkPermissions();
@@ -158,11 +143,8 @@ export class HomePage extends React.Component<object, HomePageState> {
         );
 
         this.setState({
-          showProjectInput: true,
           loading: false,
         });
-
-        await this.showToast("Please enter project name manually", "info");
         return;
       }
 
@@ -287,10 +269,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       const projectInfo = this.getProjectInfo();
 
       if (!projectInfo?.name) {
-        await this.showToast(
-          "No project context available. Please enter project name manually.",
-          "error"
-        );
         return;
       }
 
@@ -408,7 +386,7 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
 
     const repoUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${repo.name}`;
-    window.open(repoUrl, "_blank");
+    window.location.href = repoUrl;
   };
 
   private createUpdatePRFromMaster = async (
@@ -446,8 +424,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       if (pullRequest) {
         const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_git/${repo.name}/pullrequest/${pullRequest.pullRequestId}`;
-        window.open(prUrl, "_blank");
-        await this.showToast("Pull request created successfully!", "success");
+        window.location.href = prUrl;
       }
     } catch (error: unknown) {
       console.error(`Failed to create update PR for ${repo.name}:`, error);
@@ -509,7 +486,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       messagesService.addToast(toast);
     } catch (error) {
       console.error("Failed to show toast:", error);
-      // Fallback to console log if toast service fails
       console.log(`${type.toUpperCase()}: ${message}`);
     }
   };
@@ -828,7 +804,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
                                 if (projectInfo?.name) {
                                   const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
-                                  window.open(prUrl, "_blank");
+                                  window.location.href = prUrl;
                                 }
                               }}
                             >
