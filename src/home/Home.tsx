@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.43";
+const EXTENSION_VERSION = "0.0.44";
 const EXTENSION_NAME = "Repo Pulse";
 const PUBLISHER = "mberrishdev";
 import {
@@ -107,8 +107,8 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
   }
 
-  private sortRepositoriesByFavorites(repos: GitRepository[]): GitRepository[] {
-    const { favoriteRepoIds } = this.state;
+  private sortRepositoriesByFavorites(repos: GitRepository[], favoriteIds?: Set<string>): GitRepository[] {
+    const favoriteRepoIds = favoriteIds || this.state.favoriteRepoIds;
     
     return repos.sort((a, b) => {
       const aIsFavorite = favoriteRepoIds.has(a.id || '');
@@ -1046,6 +1046,49 @@ export class HomePage extends React.Component<object, HomePageState> {
     this.setState({ selectedRepoIds: new Set() });
   };
 
+  private toggleFavorite = async (repoId: string) => {
+    try {
+      const projectInfo = this.getProjectInfo();
+      
+      if (!projectInfo?.name) {
+        await this.showToast("No project context available", "error");
+        return;
+      }
+
+      const { favoriteRepoIds } = this.state;
+      const newFavoriteRepoIds = new Set(favoriteRepoIds);
+      const isCurrentlyFavorite = favoriteRepoIds.has(repoId);
+      
+      if (isCurrentlyFavorite) {
+        newFavoriteRepoIds.delete(repoId);
+      } else {
+        newFavoriteRepoIds.add(repoId);
+      }
+
+      // Update state immediately for responsive UI
+      this.setState({ favoriteRepoIds: newFavoriteRepoIds });
+
+      // Save to localStorage with project-specific key
+      const storageKey = `repo-pulse-favorites-${projectInfo.name}`;
+      localStorage.setItem(storageKey, JSON.stringify(Array.from(newFavoriteRepoIds)));
+
+      // Re-sort repositories to move favorites to top
+      const sortedRepos = this.sortRepositoriesByFavorites(this.state.repos, newFavoriteRepoIds);
+      this.setState({ repos: sortedRepos });
+
+      // Show feedback
+      const repoName = this.state.repos.find(r => r.id === repoId)?.name || 'Repository';
+      await this.showToast(
+        `${repoName} ${isCurrentlyFavorite ? 'removed from' : 'added to'} favorites`,
+        "success"
+      );
+
+    } catch (error) {
+      console.error("Failed to toggle favorite:", error);
+      await this.showToast("Failed to update favorite status", "error");
+    }
+  };
+
   public render(): JSX.Element {
     const {
       repos,
@@ -1305,16 +1348,41 @@ export class HomePage extends React.Component<object, HomePageState> {
                             >
                               {repo.name}
                             </span>
-                              {this.state.favoriteRepoIds.has(repo.id || '') && (
-                                <Icon
-                                  iconName="FavoriteStarFill"
-                                  style={{ 
-                                    color: "#ffb900",
-                                    fontSize: "12px"
-                                  }}
-                                  title="Favorite repository"
-                                />
-                              )}
+                            <span
+                              style={{
+                                cursor: "pointer",
+                                padding: "4px",
+                                borderRadius: "4px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                transition: "background-color 0.2s ease",
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                this.toggleFavorite(repo.id || '');
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = "rgba(0, 120, 212, 0.1)";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = "transparent";
+                              }}
+                              title={
+                                this.state.favoriteRepoIds.has(repo.id || '') 
+                                  ? `Remove ${repo.name} from favorites` 
+                                  : `Add ${repo.name} to favorites`
+                              }
+                            >
+                              <Icon
+                                iconName={this.state.favoriteRepoIds.has(repo.id || '') ? "FavoriteStarFill" : "FavoriteStar"}
+                                style={{ 
+                                  color: this.state.favoriteRepoIds.has(repo.id || '') ? "#ffb900" : "#666",
+                                  fontSize: "14px",
+                                  transition: "color 0.2s ease",
+                                }}
+                              />
+                            </span>
                           </div>
                           <div
                               className="body-small"
