@@ -229,15 +229,29 @@ export class HomePage extends React.Component<object, HomePageState> {
   }
 
   public componentWillUnmount() {
-    // Clean up browser history event listener
+    // Clean up browser history event listener from both iframe and parent
     window.removeEventListener("popstate", this.handlePopState);
+
+    try {
+      if (window.top && window.top !== window) {
+        window.top.removeEventListener("popstate", this.handlePopState);
+      }
+    } catch (error) {
+      // Cross-origin restriction, ignore
+    }
   }
 
   private setupBrowserHistorySupport = () => {
-    // Listen for browser back/forward navigation
     window.addEventListener("popstate", this.handlePopState);
 
-    // Set initial URL state if not already set
+    try {
+      if (window.top && window.top !== window) {
+        window.top.addEventListener("popstate", this.handlePopState);
+      }
+    } catch (error) {
+      console.log("Cross-origin restriction, only iframe navigation will work");
+    }
+
     const currentTab = this.getQueryParam("tab");
     if (!currentTab) {
       this.setQueryParam("tab", this.state.selectedTabId);
@@ -245,7 +259,6 @@ export class HomePage extends React.Component<object, HomePageState> {
   };
 
   private handlePopState = () => {
-    // Update tab based on URL when user navigates with browser back/forward
     const tabFromUrl = this.getInitialTabFromUrl();
     if (tabFromUrl !== this.state.selectedTabId) {
       this.setState({ selectedTabId: tabFromUrl });
@@ -267,12 +280,10 @@ export class HomePage extends React.Component<object, HomePageState> {
         return;
       }
 
-      // Basic validation that we can access the project
       if (!this.gitClient) {
         throw new Error("Git client not initialized");
       }
 
-      // Test basic access by getting repositories
       try {
         await this.gitClient.getRepositories(
           projectInfo.id || projectInfo.name
@@ -282,7 +293,6 @@ export class HomePage extends React.Component<object, HomePageState> {
           permError instanceof Error ? permError.message : String(permError);
         console.error("Permission check via SDK failed:", permError);
 
-        // Show appropriate error message
         if (
           permErrorMessage.includes("403") ||
           permErrorMessage.includes("Forbidden")
@@ -338,7 +348,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         projectInfo?.id || projectInfo?.name
       );
 
-      // Sort repositories to show favorites first
       const sortedRepos = this.sortRepositoriesByFavorites(repos);
 
       this.setState({
@@ -354,7 +363,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       if (error instanceof Error) {
         message = error.message;
 
-        // Check for permission-related errors
         if (
           message.includes("403") ||
           message.includes("Forbidden") ||
@@ -1554,6 +1562,23 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private getQueryParam(param: string): string | null {
     try {
+      // Try to get query param from parent window first (main Azure DevOps page)
+      if (window.top && window.top !== window) {
+        try {
+          const parentUrlParams = new URLSearchParams(
+            window.top.location.search
+          );
+          const parentParam = parentUrlParams.get(param);
+          if (parentParam) {
+            return parentParam;
+          }
+        } catch (crossOriginError) {
+          // Cross-origin restriction, fall back to iframe URL
+          console.log("Cross-origin restriction, reading from iframe URL");
+        }
+      }
+
+      // Fallback to iframe URL
       const urlParams = new URLSearchParams(window.location.search);
       return urlParams.get(param);
     } catch (error) {
@@ -1564,10 +1589,26 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private setQueryParam(param: string, value: string) {
     try {
+      // Try to update parent window URL (main Azure DevOps page)
+      if (window.top && window.top !== window) {
+        try {
+          const parentUrl = new URL(window.top.location.href);
+          parentUrl.searchParams.set(param, value);
+
+          // Update parent window URL without reloading
+          window.top.history.replaceState({}, "", parentUrl.toString());
+          return; // Success, no need to update iframe URL
+        } catch (crossOriginError) {
+          // Cross-origin restriction, fall back to iframe URL
+          console.log("Cross-origin restriction, updating iframe URL instead");
+        }
+      }
+
+      // Fallback to updating iframe URL
       const url = new URL(window.location.href);
       url.searchParams.set(param, value);
 
-      // Update the URL without reloading the page
+      // Update the iframe URL without reloading the page
       window.history.replaceState({}, "", url.toString());
     } catch (error) {
       console.error("Error setting query parameters:", error);

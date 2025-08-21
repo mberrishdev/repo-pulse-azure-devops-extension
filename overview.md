@@ -34,16 +34,14 @@ Once installed, you'll find RepoPulse in the **Repos** section of your Azure Dev
 ## Screenshots
 
 ### Repository Dashboard
+
 ![Repository Dashboard](static/images/screenshot-repositories.png)
-*View all repositories with detailed information and quick access links*
+_View all repositories with detailed information and quick access links_
 
 ### Pull Request Management
-![Pull Request Management](static/images/screenshot-pullrequests.png)
-*Monitor active pull requests grouped by title with automated update capabilities*
 
-### Extension in Azure DevOps Navigation
-![Extension Navigation](static/images/screenshot-navigation.png)
-*RepoPulse integrated seamlessly into Azure DevOps navigation*
+![Pull Request Management](static/images/screenshot-pullrequests.png)
+_Monitor active pull requests grouped by title with automated update capabilities_
 
 ## Requirements
 
@@ -54,6 +52,7 @@ Once installed, you'll find RepoPulse in the **Repos** section of your Azure Dev
 ## Support
 
 For issues, feature requests, or questions:
+
 - Create an issue in the extension's repository
 - Contact the publisher through the Azure DevOps Marketplace
 
