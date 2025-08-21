@@ -5,9 +5,8 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.46";
+const EXTENSION_VERSION = "0.0.47";
 const EXTENSION_NAME = "Repo Pulse";
-const PUBLISHER = "mberrishdev";
 import {
   GitRestClient,
   GitRepository,
@@ -62,7 +61,12 @@ interface PullRequestBuildStatus {
   buildNumber?: string;
   buildId?: number;
   isLoading: boolean;
-  approvalStatus: 'approved' | 'waiting-for-author' | 'rejected' | 'pending' | 'unknown';
+  approvalStatus:
+    | "approved"
+    | "waiting-for-author"
+    | "rejected"
+    | "pending"
+    | "unknown";
   reviewerCount: number;
   requiredReviewerCount: number;
   hasAutoComplete: boolean;
@@ -102,7 +106,7 @@ export class HomePage extends React.Component<object, HomePageState> {
   private async loadFavoriteRepositories() {
     try {
       const projectInfo = this.getProjectInfo();
-      
+
       if (!projectInfo?.name) {
         return;
       }
@@ -110,7 +114,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       // Use localStorage with project-specific key to store favorites
       const storageKey = `repo-pulse-favorites-${projectInfo.name}`;
       const storedFavorites = localStorage.getItem(storageKey);
-      
+
       if (storedFavorites) {
         const favoriteIds = JSON.parse(storedFavorites) as string[];
         this.setState({ favoriteRepoIds: new Set(favoriteIds) });
@@ -121,19 +125,22 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
   }
 
-  private sortRepositoriesByFavorites(repos: GitRepository[], favoriteIds?: Set<string>): GitRepository[] {
+  private sortRepositoriesByFavorites(
+    repos: GitRepository[],
+    favoriteIds?: Set<string>
+  ): GitRepository[] {
     const favoriteRepoIds = favoriteIds || this.state.favoriteRepoIds;
-    
+
     return repos.sort((a, b) => {
-      const aIsFavorite = favoriteRepoIds.has(a.id || '');
-      const bIsFavorite = favoriteRepoIds.has(b.id || '');
-      
+      const aIsFavorite = favoriteRepoIds.has(a.id || "");
+      const bIsFavorite = favoriteRepoIds.has(b.id || "");
+
       // If one is favorite and the other isn't, favorite comes first
       if (aIsFavorite && !bIsFavorite) return -1;
       if (!aIsFavorite && bIsFavorite) return 1;
-      
+
       // If both are favorites or both are not favorites, sort alphabetically by name
-      return (a.name || '').localeCompare(b.name || '');
+      return (a.name || "").localeCompare(b.name || "");
     });
   }
 
@@ -319,10 +326,10 @@ export class HomePage extends React.Component<object, HomePageState> {
     } catch (error: unknown) {
       let message = "Failed to load repositories";
       let isPermissionError = false;
-      
+
       if (error instanceof Error) {
         message = error.message;
-        
+
         // Check for permission-related errors
         if (
           message.includes("403") ||
@@ -478,7 +485,7 @@ export class HomePage extends React.Component<object, HomePageState> {
           }));
           return;
         }
-        
+
         try {
           const builds = await this.buildClient!.getBuilds(
             projectName,
@@ -543,7 +550,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       });
 
       await Promise.allSettled(processPromises);
-        } catch (error) {
+    } catch (error) {
       console.error("Failed to load build definitions:", error);
     }
   }
@@ -585,7 +592,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       let isPermissionError = false;
-      
+
       // Check for permission-related errors
       if (
         errorMessage.includes("403") ||
@@ -635,7 +642,7 @@ export class HomePage extends React.Component<object, HomePageState> {
             [pr.pullRequestId!]: {
               status: BuildStatus.None,
               isLoading: true,
-              approvalStatus: 'unknown',
+              approvalStatus: "unknown",
               reviewerCount: 0,
               requiredReviewerCount: 0,
               hasAutoComplete: false,
@@ -645,7 +652,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
         // Get build status for the PR
         const builds = await this.buildClient!.getBuilds(
-          pr.repository?.project?.name || '',
+          pr.repository?.project?.name || "",
           undefined, // definitions
           undefined, // queues
           undefined, // buildNumber
@@ -666,32 +673,43 @@ export class HomePage extends React.Component<object, HomePageState> {
         );
 
         // Find the most recent build for this PR's source branch
-        const latestBuild = builds.find(build => 
-          build.sourceBranch === pr.sourceRefName || 
-          build.triggerInfo?.['pr.number'] === pr.pullRequestId?.toString()
+        const latestBuild = builds.find(
+          (build) =>
+            build.sourceBranch === pr.sourceRefName ||
+            build.triggerInfo?.["pr.number"] === pr.pullRequestId?.toString()
         );
 
         // Get approval status information
-        let approvalStatus: 'approved' | 'waiting-for-author' | 'rejected' | 'pending' | 'unknown' = 'unknown';
+        let approvalStatus:
+          | "approved"
+          | "waiting-for-author"
+          | "rejected"
+          | "pending"
+          | "unknown" = "unknown";
         let reviewerCount = 0;
         let requiredReviewerCount = 0;
 
         if (pr.reviewers && pr.reviewers.length > 0) {
-          const approvedReviewers = pr.reviewers.filter(r => r.vote === 10); // 10 = approved
-          const rejectedReviewers = pr.reviewers.filter(r => r.vote === -10); // -10 = rejected
-          const waitingReviewers = pr.reviewers.filter(r => r.vote === -5); // -5 = waiting for author
-          
+          const approvedReviewers = pr.reviewers.filter((r) => r.vote === 10); // 10 = approved
+          const rejectedReviewers = pr.reviewers.filter((r) => r.vote === -10); // -10 = rejected
+          const waitingReviewers = pr.reviewers.filter((r) => r.vote === -5); // -5 = waiting for author
+
           reviewerCount = pr.reviewers.length;
-          requiredReviewerCount = pr.reviewers.filter(r => r.isRequired).length;
+          requiredReviewerCount = pr.reviewers.filter(
+            (r) => r.isRequired
+          ).length;
 
           if (rejectedReviewers.length > 0) {
-            approvalStatus = 'rejected';
+            approvalStatus = "rejected";
           } else if (waitingReviewers.length > 0) {
-            approvalStatus = 'waiting-for-author';
-          } else if (approvedReviewers.length > 0 && approvedReviewers.length >= requiredReviewerCount) {
-            approvalStatus = 'approved';
+            approvalStatus = "waiting-for-author";
+          } else if (
+            approvedReviewers.length > 0 &&
+            approvedReviewers.length >= requiredReviewerCount
+          ) {
+            approvalStatus = "approved";
           } else {
-            approvalStatus = 'pending';
+            approvalStatus = "pending";
           }
         }
 
@@ -713,10 +731,12 @@ export class HomePage extends React.Component<object, HomePageState> {
             [pr.pullRequestId!]: prBuildStatus,
           },
         }));
-
       } catch (error) {
-        console.error(`Failed to load build status for PR ${pr.pullRequestId}:`, error);
-        
+        console.error(
+          `Failed to load build status for PR ${pr.pullRequestId}:`,
+          error
+        );
+
         // Set error state for this PR
         this.setState((prevState) => ({
           prBuildStatuses: {
@@ -724,7 +744,7 @@ export class HomePage extends React.Component<object, HomePageState> {
             [pr.pullRequestId!]: {
               status: BuildStatus.None,
               isLoading: false,
-              approvalStatus: 'unknown',
+              approvalStatus: "unknown",
               reviewerCount: 0,
               requiredReviewerCount: 0,
               hasAutoComplete: false,
@@ -865,13 +885,13 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private getApprovalStatusColor = (approvalStatus: string): string => {
     switch (approvalStatus) {
-      case 'approved':
+      case "approved":
         return "#107c10"; // Green
-      case 'rejected':
+      case "rejected":
         return "#d13438"; // Red
-      case 'waiting-for-author':
+      case "waiting-for-author":
         return "#ff8c00"; // Orange
-      case 'pending':
+      case "pending":
         return "#0078d4"; // Blue
       default:
         return "#666666"; // Gray
@@ -880,13 +900,13 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private getApprovalStatusText = (approvalStatus: string): string => {
     switch (approvalStatus) {
-      case 'approved':
+      case "approved":
         return "Approved";
-      case 'rejected':
+      case "rejected":
         return "Rejected";
-      case 'waiting-for-author':
+      case "waiting-for-author":
         return "Waiting for Author";
-      case 'pending':
+      case "pending":
         return "Pending Review";
       default:
         return "Unknown";
@@ -895,35 +915,39 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private getApprovalStatusIcon = (approvalStatus: string): string => {
     switch (approvalStatus) {
-      case 'approved':
+      case "approved":
         return "CheckMark";
-      case 'rejected':
+      case "rejected":
         return "Cancel";
-      case 'waiting-for-author':
+      case "waiting-for-author":
         return "Warning";
-      case 'pending':
+      case "pending":
         return "Clock";
       default:
         return "Unknown";
     }
   };
 
-  private isPullRequestReadyToMerge = (pr: GitPullRequest, prBuildStatus?: PullRequestBuildStatus): boolean => {
+  private isPullRequestReadyToMerge = (
+    pr: GitPullRequest,
+    prBuildStatus?: PullRequestBuildStatus
+  ): boolean => {
     if (!prBuildStatus) return false;
-    
+
     // Check if PR is active
     if (pr.status !== PullRequestStatus.Active) return false;
-    
+
     // Check if it's not a draft
     if (pr.isDraft) return false;
-    
+
     // Check if builds are passing
-    const buildsPassing = prBuildStatus.status === BuildStatus.Completed && 
-                         prBuildStatus.result === BuildResult.Succeeded;
-    
+    const buildsPassing =
+      prBuildStatus.status === BuildStatus.Completed &&
+      prBuildStatus.result === BuildResult.Succeeded;
+
     // Check if approved
-    const isApproved = prBuildStatus.approvalStatus === 'approved';
-    
+    const isApproved = prBuildStatus.approvalStatus === "approved";
+
     return buildsPassing && isApproved;
   };
 
@@ -1000,11 +1024,11 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       // Create pull request using SDK
       const prData: Partial<GitPullRequest> = {
-          sourceRefName: `refs/heads/${masterBranch}`,
-          targetRefName: `${targetRefName}`,
-          title: `Update ${targetRefName} from ${masterBranch}`,
-          description: `Automated PR to update ${targetRefName} with latest changes from ${masterBranch}`,
-          isDraft: false,
+        sourceRefName: `refs/heads/${masterBranch}`,
+        targetRefName: `${targetRefName}`,
+        title: `Update ${targetRefName} from ${masterBranch}`,
+        description: `Automated PR to update ${targetRefName} with latest changes from ${masterBranch}`,
+        isDraft: false,
       };
 
       const pullRequest = await this.gitClient.createPullRequest(
@@ -1080,7 +1104,11 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
   };
 
-  private triggerPipeline = async (repoId: string, definitionId: number, repoName: string) => {
+  private triggerPipeline = async (
+    repoId: string,
+    definitionId: number,
+    repoName: string
+  ) => {
     try {
       const projectInfo = this.getProjectInfo();
       if (!projectInfo?.name || !this.buildClient) {
@@ -1092,18 +1120,16 @@ export class HomePage extends React.Component<object, HomePageState> {
         triggeringRepoIds: new Set(prevState.triggeringRepoIds).add(repoId),
       }));
 
-      // Queue a new build - create a minimal build object
       const buildToQueue = {
-        definition: { 
-          id: definitionId 
+        definition: {
+          id: definitionId,
         },
-        sourceBranch: "refs/heads/master", // Default to master, can be made configurable
-        project: { name: projectInfo.name }
+        sourceBranch: "refs/heads/master",
       };
 
       const build = await this.buildClient.queueBuild(
-        buildToQueue as any, // Type assertion to bypass strict typing
-        projectInfo.name
+        buildToQueue as any,
+        projectInfo.id || projectInfo.name
       );
 
       await this.showToast(
@@ -1111,15 +1137,14 @@ export class HomePage extends React.Component<object, HomePageState> {
         "success"
       );
 
-      // Refresh build status for this repo
       setTimeout(() => {
         this.refreshBuildStatusForRepo(repoId, projectInfo.name!);
       }, 2000);
-
     } catch (error) {
       console.error(`Failed to trigger pipeline for ${repoName}:`, error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
       if (errorMessage.includes("403") || errorMessage.includes("401")) {
         await this.showToast(
           `Permission denied: Cannot trigger pipeline for ${repoName}. Contact your Azure DevOps administrator.`,
@@ -1143,7 +1168,7 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private triggerSelectedPipelines = async () => {
     const { selectedRepoIds, repos, buildStatuses } = this.state;
-    
+
     if (selectedRepoIds.size === 0) {
       await this.showToast("Please select at least one repository", "warning");
       return;
@@ -1152,11 +1177,15 @@ export class HomePage extends React.Component<object, HomePageState> {
     this.setState({ isTriggeringPipelines: true });
 
     const triggerPromises = Array.from(selectedRepoIds).map(async (repoId) => {
-      const repo = repos.find(r => r.id === repoId);
+      const repo = repos.find((r) => r.id === repoId);
       const buildStatus = buildStatuses[repoId];
-      
+
       if (repo && buildStatus?.definitionId) {
-        await this.triggerPipeline(repoId, buildStatus.definitionId, repo.name || 'Unknown');
+        await this.triggerPipeline(
+          repoId,
+          buildStatus.definitionId,
+          repo.name || "Unknown"
+        );
       }
     });
 
@@ -1169,14 +1198,17 @@ export class HomePage extends React.Component<object, HomePageState> {
     } catch (error) {
       console.error("Error during batch pipeline trigger:", error);
     } finally {
-      this.setState({ 
+      this.setState({
         isTriggeringPipelines: false,
-        selectedRepoIds: new Set() // Clear selection after triggering
+        selectedRepoIds: new Set(), // Clear selection after triggering
       });
     }
   };
 
-  private refreshBuildStatusForRepo = async (repoId: string, projectName: string) => {
+  private refreshBuildStatusForRepo = async (
+    repoId: string,
+    projectName: string
+  ) => {
     const buildStatus = this.state.buildStatuses[repoId];
     if (!buildStatus?.definitionId || !this.buildClient) {
       return;
@@ -1219,7 +1251,10 @@ export class HomePage extends React.Component<object, HomePageState> {
         }));
       }
     } catch (error) {
-      console.error(`Failed to refresh build status for repo ${repoId}:`, error);
+      console.error(
+        `Failed to refresh build status for repo ${repoId}:`,
+        error
+      );
     }
   };
 
@@ -1237,12 +1272,12 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private selectAllRepos = () => {
     const { repos, buildStatuses } = this.state;
-    const reposWithPipelines = repos.filter(repo => 
-      repo.id && buildStatuses[repo.id]?.definitionId
+    const reposWithPipelines = repos.filter(
+      (repo) => repo.id && buildStatuses[repo.id]?.definitionId
     );
-    
+
     this.setState({
-      selectedRepoIds: new Set(reposWithPipelines.map(repo => repo.id!))
+      selectedRepoIds: new Set(reposWithPipelines.map((repo) => repo.id!)),
     });
   };
 
@@ -1253,7 +1288,7 @@ export class HomePage extends React.Component<object, HomePageState> {
   private toggleFavorite = async (repoId: string) => {
     try {
       const projectInfo = this.getProjectInfo();
-      
+
       if (!projectInfo?.name) {
         await this.showToast("No project context available", "error");
         return;
@@ -1262,7 +1297,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       const { favoriteRepoIds } = this.state;
       const newFavoriteRepoIds = new Set(favoriteRepoIds);
       const isCurrentlyFavorite = favoriteRepoIds.has(repoId);
-      
+
       if (isCurrentlyFavorite) {
         newFavoriteRepoIds.delete(repoId);
       } else {
@@ -1274,19 +1309,27 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       // Save to localStorage with project-specific key
       const storageKey = `repo-pulse-favorites-${projectInfo.name}`;
-      localStorage.setItem(storageKey, JSON.stringify(Array.from(newFavoriteRepoIds)));
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify(Array.from(newFavoriteRepoIds))
+      );
 
       // Re-sort repositories to move favorites to top
-      const sortedRepos = this.sortRepositoriesByFavorites(this.state.repos, newFavoriteRepoIds);
+      const sortedRepos = this.sortRepositoriesByFavorites(
+        this.state.repos,
+        newFavoriteRepoIds
+      );
       this.setState({ repos: sortedRepos });
 
       // Show feedback
-      const repoName = this.state.repos.find(r => r.id === repoId)?.name || 'Repository';
+      const repoName =
+        this.state.repos.find((r) => r.id === repoId)?.name || "Repository";
       await this.showToast(
-        `${repoName} ${isCurrentlyFavorite ? 'removed from' : 'added to'} favorites`,
+        `${repoName} ${
+          isCurrentlyFavorite ? "removed from" : "added to"
+        } favorites`,
         "success"
       );
-
     } catch (error) {
       console.error("Failed to toggle favorite:", error);
       await this.showToast("Failed to update favorite status", "error");
@@ -1385,15 +1428,37 @@ export class HomePage extends React.Component<object, HomePageState> {
                     gap: "12px",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <span className="body-medium" style={{ color: "#323130", fontWeight: "600" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                    }}
+                  >
+                    <span
+                      className="body-medium"
+                      style={{ color: "#323130", fontWeight: "600" }}
+                    >
                       Pipeline Controls:
                     </span>
                     <span className="body-small" style={{ color: "#666" }}>
-                      {selectedRepoIds.size} of {repos.filter(repo => repo.id && buildStatuses[repo.id]?.definitionId).length} selected
+                      {selectedRepoIds.size} of{" "}
+                      {
+                        repos.filter(
+                          (repo) =>
+                            repo.id && buildStatuses[repo.id]?.definitionId
+                        ).length
+                      }{" "}
+                      selected
                     </span>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
                     <Button
                       text="Select All"
                       iconProps={{ iconName: "CheckboxComposite" }}
@@ -1405,14 +1470,24 @@ export class HomePage extends React.Component<object, HomePageState> {
                       text="Clear"
                       iconProps={{ iconName: "Clear" }}
                       onClick={this.clearRepoSelection}
-                      disabled={isTriggeringPipelines || selectedRepoIds.size === 0}
+                      disabled={
+                        isTriggeringPipelines || selectedRepoIds.size === 0
+                      }
                       subtle={true}
                     />
                     <Button
-                      text={isTriggeringPipelines ? "Triggering..." : `Trigger Selected (${selectedRepoIds.size})`}
-                      iconProps={{ iconName: isTriggeringPipelines ? "Sync" : "Play" }}
+                      text={
+                        isTriggeringPipelines
+                          ? "Triggering..."
+                          : `Trigger Selected (${selectedRepoIds.size})`
+                      }
+                      iconProps={{
+                        iconName: isTriggeringPipelines ? "Sync" : "Play",
+                      }}
                       onClick={this.triggerSelectedPipelines}
-                      disabled={isTriggeringPipelines || selectedRepoIds.size === 0}
+                      disabled={
+                        isTriggeringPipelines || selectedRepoIds.size === 0
+                      }
                       primary={true}
                     />
                   </div>
@@ -1458,158 +1533,171 @@ export class HomePage extends React.Component<object, HomePageState> {
                   {repos
                     .filter((repo) => repo && repo.id)
                     .map((repo) => (
-                    <div
-                      key={repo.id}
-                      style={{
-                        backgroundColor: "white",
-                        border: "1px solid #e1e1e1",
-                        borderRadius: "6px",
-                        padding: "16px 20px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        transition:
-                          "box-shadow 0.2s ease, border-color 0.2s ease",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.boxShadow =
-                          "0 2px 8px rgba(0,0,0,0.1)";
-                        e.currentTarget.style.borderColor = "#0078d4";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.boxShadow = "none";
-                        e.currentTarget.style.borderColor = "#e1e1e1";
-                      }}
-                    >
                       <div
+                        key={repo.id}
                         style={{
+                          backgroundColor: "white",
+                          border: "1px solid #e1e1e1",
+                          borderRadius: "6px",
+                          padding: "16px 20px",
                           display: "flex",
                           alignItems: "center",
-                          gap: "16px",
-                          flex: 1,
+                          justifyContent: "space-between",
+                          transition:
+                            "box-shadow 0.2s ease, border-color 0.2s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.boxShadow =
+                            "0 2px 8px rgba(0,0,0,0.1)";
+                          e.currentTarget.style.borderColor = "#0078d4";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.boxShadow = "none";
+                          e.currentTarget.style.borderColor = "#e1e1e1";
                         }}
                       >
-                        {/* Checkbox for selection (only show if repo has a pipeline) */}
-                        {repo.id && buildStatuses[repo.id]?.definitionId && (
-                          <input
-                            type="checkbox"
-                            checked={selectedRepoIds.has(repo.id)}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              this.toggleRepoSelection(repo.id!);
-                            }}
-                            style={{
-                              width: "16px",
-                              height: "16px",
-                              cursor: "pointer",
-                              accentColor: "#0078d4",
-                            }}
-                            disabled={isTriggeringPipelines}
-                          />
-                        )}
-
                         <div
-                            className="body-medium"
                           style={{
-                            width: "32px",
-                            height: "32px",
-                            borderRadius: "50%",
-                            backgroundColor: "#0078d4",
                             display: "flex",
                             alignItems: "center",
-                            justifyContent: "center",
-                            color: "white",
-                            fontWeight: "600",
+                            gap: "16px",
+                            flex: 1,
                           }}
                         >
-                          {repo.name.charAt(0).toUpperCase()}
-                        </div>
+                          {/* Checkbox for selection (only show if repo has a pipeline) */}
+                          {repo.id && buildStatuses[repo.id]?.definitionId && (
+                            <input
+                              type="checkbox"
+                              checked={selectedRepoIds.has(repo.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                this.toggleRepoSelection(repo.id!);
+                              }}
+                              style={{
+                                width: "16px",
+                                height: "16px",
+                                cursor: "pointer",
+                                accentColor: "#0078d4",
+                              }}
+                              disabled={isTriggeringPipelines}
+                            />
+                          )}
 
-                        <div style={{ flex: 1 }}>
                           <div
-                              className="title-small"
+                            className="body-medium"
                             style={{
-                              color: "#323130",
-                              marginBottom: "4px",
+                              width: "32px",
+                              height: "32px",
+                              borderRadius: "50%",
+                              backgroundColor: "#0078d4",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: "white",
+                              fontWeight: "600",
+                            }}
+                          >
+                            {repo.name.charAt(0).toUpperCase()}
+                          </div>
+
+                          <div style={{ flex: 1 }}>
+                            <div
+                              className="title-small"
+                              style={{
+                                color: "#323130",
+                                marginBottom: "4px",
                                 display: "flex",
                                 alignItems: "center",
                                 gap: "8px",
-                            }}
-                          >
-                            <span
-                              style={{
-                                cursor: "pointer",
-                                color: "#0078d4",
-                                textDecoration: "none",
-                                transition: "color 0.2s ease",
                               }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.textDecoration = "underline";
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.textDecoration = "none";
-                              }}
-                              onClick={() => this.openRepository(repo)}
-                              title={`Click to open ${repo.name} repository`}
                             >
-                              {repo.name}
-                            </span>
-                            <span
-                              style={{
-                                cursor: "pointer",
-                                padding: "4px",
-                                borderRadius: "4px",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                transition: "background-color 0.2s ease",
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                this.toggleFavorite(repo.id || '');
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = "rgba(0, 120, 212, 0.1)";
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = "transparent";
-                              }}
-                              title={
-                                this.state.favoriteRepoIds.has(repo.id || '') 
-                                  ? `Remove ${repo.name} from favorites` 
-                                  : `Add ${repo.name} to favorites`
-                              }
-                            >
-                              <Icon
-                                iconName={this.state.favoriteRepoIds.has(repo.id || '') ? "FavoriteStarFill" : "FavoriteStar"}
-                                style={{ 
-                                  color: this.state.favoriteRepoIds.has(repo.id || '') ? "#ffb900" : "#666",
-                                  fontSize: "14px",
+                              <span
+                                style={{
+                                  cursor: "pointer",
+                                  color: "#0078d4",
+                                  textDecoration: "none",
                                   transition: "color 0.2s ease",
                                 }}
-                              />
-                            </span>
-                          </div>
-                          <div
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.textDecoration =
+                                    "underline";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.textDecoration = "none";
+                                }}
+                                onClick={() => this.openRepository(repo)}
+                                title={`Click to open ${repo.name} repository`}
+                              >
+                                {repo.name}
+                              </span>
+                              <span
+                                style={{
+                                  cursor: "pointer",
+                                  padding: "4px",
+                                  borderRadius: "4px",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  transition: "background-color 0.2s ease",
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  this.toggleFavorite(repo.id || "");
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor =
+                                    "rgba(0, 120, 212, 0.1)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor =
+                                    "transparent";
+                                }}
+                                title={
+                                  this.state.favoriteRepoIds.has(repo.id || "")
+                                    ? `Remove ${repo.name} from favorites`
+                                    : `Add ${repo.name} to favorites`
+                                }
+                              >
+                                <Icon
+                                  iconName={
+                                    this.state.favoriteRepoIds.has(
+                                      repo.id || ""
+                                    )
+                                      ? "FavoriteStarFill"
+                                      : "FavoriteStar"
+                                  }
+                                  style={{
+                                    color: this.state.favoriteRepoIds.has(
+                                      repo.id || ""
+                                    )
+                                      ? "#ffb900"
+                                      : "#666",
+                                    fontSize: "14px",
+                                    transition: "color 0.2s ease",
+                                  }}
+                                />
+                              </span>
+                            </div>
+                            <div
                               className="body-small"
-                            style={{
-                              color: "#666",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "12px",
+                              style={{
+                                color: "#666",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "12px",
                                 flexWrap: "wrap",
-                            }}
-                          >
-                            <span>
-                              Default Branch:{" "}
+                              }}
+                            >
+                              <span>
+                                Default Branch:{" "}
                                 {repo.defaultBranch?.replace(
                                   "refs/heads/",
                                   ""
                                 ) || "None"}
-                            </span>
+                              </span>
                               {repo.id && buildStatuses[repo.id] && (
                                 <>
-                            <span>•</span>
+                                  <span>•</span>
                                   <span
                                     style={{
                                       display: "flex",
@@ -1675,46 +1763,60 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         }}
                                       >
                                         #{buildStatuses[repo.id].buildNumber}
-                            </span>
+                                      </span>
                                     )}
                                   </span>
                                 </>
                               )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                      >
-                        {/* Individual Pipeline Trigger Button */}
-                        {repo.id && buildStatuses[repo.id]?.definitionId && (
-                          <Button
-                            text={triggeringRepoIds.has(repo.id) ? "Triggering..." : "Trigger"}
-                            iconProps={{ 
-                              iconName: triggeringRepoIds.has(repo.id) ? "Sync" : "Play" 
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              this.triggerPipeline(
-                                repo.id!,
-                                buildStatuses[repo.id].definitionId!,
-                                repo.name || 'Unknown'
-                              );
-                            }}
-                            disabled={triggeringRepoIds.has(repo.id) || isTriggeringPipelines}
-                            primary={false}
-                            subtle={true}
-                            tooltipProps={{ text: `Trigger pipeline for ${repo.name} (${buildStatuses[repo.id]?.definitionName || 'Unknown pipeline'})` }}
-                          />
-                        )}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                        >
+                          {/* Individual Pipeline Trigger Button */}
+                          {repo.id && buildStatuses[repo.id]?.definitionId && (
+                            <Button
+                              text={
+                                triggeringRepoIds.has(repo.id)
+                                  ? "Triggering..."
+                                  : "Trigger"
+                              }
+                              iconProps={{
+                                iconName: triggeringRepoIds.has(repo.id)
+                                  ? "Sync"
+                                  : "Play",
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                this.triggerPipeline(
+                                  repo.id!,
+                                  buildStatuses[repo.id].definitionId!,
+                                  repo.name || "Unknown"
+                                );
+                              }}
+                              disabled={
+                                triggeringRepoIds.has(repo.id) ||
+                                isTriggeringPipelines
+                              }
+                              primary={false}
+                              subtle={true}
+                              tooltipProps={{
+                                text: `Trigger pipeline for ${repo.name} (${
+                                  buildStatuses[repo.id]?.definitionName ||
+                                  "Unknown pipeline"
+                                })`,
+                              }}
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               )}
             </div>
@@ -1790,278 +1892,327 @@ export class HomePage extends React.Component<object, HomePageState> {
                         {prs
                           .filter((pr) => pr && pr.pullRequestId)
                           .map((pr) => (
-                          <div
-                            key={pr.pullRequestId}
-                            style={{
-                              backgroundColor: "white",
-                              border: "1px solid #e1e1e1",
-                              borderRadius: "6px",
-                              padding: "16px 20px",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              transition:
-                                "box-shadow 0.2s ease, border-color 0.2s ease",
-                              cursor: "pointer",
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.boxShadow =
-                                "0 2px 8px rgba(0,0,0,0.1)";
-                              e.currentTarget.style.borderColor = "#0078d4";
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.boxShadow = "none";
-                              e.currentTarget.style.borderColor = "#e1e1e1";
-                            }}
-                            onClick={() => {
+                            <div
+                              key={pr.pullRequestId}
+                              style={{
+                                backgroundColor: "white",
+                                border: "1px solid #e1e1e1",
+                                borderRadius: "6px",
+                                padding: "16px 20px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                transition:
+                                  "box-shadow 0.2s ease, border-color 0.2s ease",
+                                cursor: "pointer",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.boxShadow =
+                                  "0 2px 8px rgba(0,0,0,0.1)";
+                                e.currentTarget.style.borderColor = "#0078d4";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.boxShadow = "none";
+                                e.currentTarget.style.borderColor = "#e1e1e1";
+                              }}
+                              onClick={() => {
                                 const projectInfo = this.getProjectInfo();
 
                                 if (projectInfo?.name) {
                                   const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
                                   this.navigateToUrl(prUrl);
                                 }
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "16px",
-                                flex: 1,
                               }}
                             >
                               <div
                                 style={{
-                                  width: "32px",
-                                  height: "32px",
-                                  borderRadius: "50%",
-                                  backgroundColor: this.getStatusColor(
-                                    pr.status || 0
-                                  ),
                                   display: "flex",
                                   alignItems: "center",
-                                  justifyContent: "center",
-                                  color: "white",
-                                  fontWeight: "600",
-                                  fontSize: "14px",
+                                  gap: "16px",
+                                  flex: 1,
                                 }}
                               >
-                                PR
-                              </div>
-
-                              <div style={{ flex: 1 }}>
                                 <div
                                   style={{
-                                    fontSize: "16px",
+                                    width: "32px",
+                                    height: "32px",
+                                    borderRadius: "50%",
+                                    backgroundColor: this.getStatusColor(
+                                      pr.status || 0
+                                    ),
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    color: "white",
                                     fontWeight: "600",
-                                    color: "#323130",
-                                    marginBottom: "4px",
+                                    fontSize: "14px",
                                   }}
                                 >
-                                  {pr.repository?.name} -{" "}
+                                  PR
+                                </div>
+
+                                <div style={{ flex: 1 }}>
+                                  <div
+                                    style={{
+                                      fontSize: "16px",
+                                      fontWeight: "600",
+                                      color: "#323130",
+                                      marginBottom: "4px",
+                                    }}
+                                  >
+                                    {pr.repository?.name} -{" "}
                                     {pr.sourceRefName?.replace(
                                       "refs/heads/",
                                       ""
                                     )}{" "}
-                                  →{" "}
+                                    →{" "}
                                     {pr.targetRefName?.replace(
                                       "refs/heads/",
                                       ""
                                     )}
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "12px",
-                                    color: "#666",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "12px",
-                                    flexWrap: "wrap",
-                                  }}
-                                >
-                                  <span>
-                                      Status:{" "}
-                                      {this.getStatusText(pr.status || 0)}
-                                  </span>
-                                  <span>•</span>
-                                  <span>ID: #{pr.pullRequestId}</span>
-                                  <span>•</span>
-                                  <span
+                                  </div>
+                                  <div
                                     style={{
-                                      padding: "2px 6px",
-                                      borderRadius: "4px",
-                                      fontSize: "10px",
-                                      fontWeight: "600",
-                                      backgroundColor: pr.isDraft
-                                        ? "#ffd700"
-                                        : "#107c10",
-                                      color: pr.isDraft ? "#000" : "#fff",
+                                      fontSize: "12px",
+                                      color: "#666",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "12px",
+                                      flexWrap: "wrap",
                                     }}
                                   >
-                                    {pr.isDraft ? "DRAFT" : "ACTIVE"}
-                                  </span>
-                                  
-                                  {/* Build Status */}
-                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId] && (
-                                    <>
-                                      <span>•</span>
-                                      <span
-                                        style={{
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "4px",
-                                          padding: "2px 6px",
-                                          borderRadius: "4px",
-                                          fontSize: "10px",
-                                          fontWeight: "600",
-                                          backgroundColor: this.getBuildStatusColor(
-                                            prBuildStatuses[pr.pullRequestId].status,
-                                            prBuildStatuses[pr.pullRequestId].result
-                                          ),
-                                          color: "#fff",
-                                        }}
-                                      >
-                                        <Icon
-                                          iconName={this.getBuildStatusIcon(
-                                            prBuildStatuses[pr.pullRequestId].status,
-                                            prBuildStatuses[pr.pullRequestId].result
-                                          )}
-                                          style={{ fontSize: "8px" }}
-                                        />
-                                        {prBuildStatuses[pr.pullRequestId].isLoading
-                                          ? "Loading..."
-                                          : this.getBuildStatusText(
-                                              prBuildStatuses[pr.pullRequestId].status,
-                                              prBuildStatuses[pr.pullRequestId].result
+                                    <span>
+                                      Status:{" "}
+                                      {this.getStatusText(pr.status || 0)}
+                                    </span>
+                                    <span>•</span>
+                                    <span>ID: #{pr.pullRequestId}</span>
+                                    <span>•</span>
+                                    <span
+                                      style={{
+                                        padding: "2px 6px",
+                                        borderRadius: "4px",
+                                        fontSize: "10px",
+                                        fontWeight: "600",
+                                        backgroundColor: pr.isDraft
+                                          ? "#ffd700"
+                                          : "#107c10",
+                                        color: pr.isDraft ? "#000" : "#fff",
+                                      }}
+                                    >
+                                      {pr.isDraft ? "DRAFT" : "ACTIVE"}
+                                    </span>
+
+                                    {/* Build Status */}
+                                    {pr.pullRequestId &&
+                                      prBuildStatuses[pr.pullRequestId] && (
+                                        <>
+                                          <span>•</span>
+                                          <span
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: "4px",
+                                              padding: "2px 6px",
+                                              borderRadius: "4px",
+                                              fontSize: "10px",
+                                              fontWeight: "600",
+                                              backgroundColor:
+                                                this.getBuildStatusColor(
+                                                  prBuildStatuses[
+                                                    pr.pullRequestId
+                                                  ].status,
+                                                  prBuildStatuses[
+                                                    pr.pullRequestId
+                                                  ].result
+                                                ),
+                                              color: "#fff",
+                                            }}
+                                          >
+                                            <Icon
+                                              iconName={this.getBuildStatusIcon(
+                                                prBuildStatuses[
+                                                  pr.pullRequestId
+                                                ].status,
+                                                prBuildStatuses[
+                                                  pr.pullRequestId
+                                                ].result
+                                              )}
+                                              style={{ fontSize: "8px" }}
+                                            />
+                                            {prBuildStatuses[pr.pullRequestId]
+                                              .isLoading
+                                              ? "Loading..."
+                                              : this.getBuildStatusText(
+                                                  prBuildStatuses[
+                                                    pr.pullRequestId
+                                                  ].status,
+                                                  prBuildStatuses[
+                                                    pr.pullRequestId
+                                                  ].result
+                                                )}
+                                            {prBuildStatuses[pr.pullRequestId]
+                                              .buildNumber && (
+                                              <span style={{ opacity: 0.8 }}>
+                                                #
+                                                {
+                                                  prBuildStatuses[
+                                                    pr.pullRequestId
+                                                  ].buildNumber
+                                                }
+                                              </span>
                                             )}
-                                        {prBuildStatuses[pr.pullRequestId].buildNumber && (
-                                          <span style={{ opacity: 0.8 }}>
-                                            #{prBuildStatuses[pr.pullRequestId].buildNumber}
                                           </span>
-                                        )}
-                                      </span>
-                                    </>
-                                  )}
+                                        </>
+                                      )}
 
-                                  {/* Approval Status */}
-                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId] && (
-                                    <>
-                                      <span>•</span>
-                                      <span
-                                        style={{
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "4px",
-                                          padding: "2px 6px",
-                                          borderRadius: "4px",
-                                          fontSize: "10px",
-                                          fontWeight: "600",
-                                          backgroundColor: this.getApprovalStatusColor(
-                                            prBuildStatuses[pr.pullRequestId].approvalStatus
-                                          ),
-                                          color: "#fff",
-                                        }}
-                                      >
-                                        <Icon
-                                          iconName={this.getApprovalStatusIcon(
-                                            prBuildStatuses[pr.pullRequestId].approvalStatus
-                                          )}
-                                          style={{ fontSize: "8px" }}
-                                        />
-                                        {this.getApprovalStatusText(prBuildStatuses[pr.pullRequestId].approvalStatus)}
-                                        {prBuildStatuses[pr.pullRequestId].reviewerCount > 0 && (
-                                          <span style={{ opacity: 0.8 }}>
-                                            ({prBuildStatuses[pr.pullRequestId].reviewerCount})
+                                    {/* Approval Status */}
+                                    {pr.pullRequestId &&
+                                      prBuildStatuses[pr.pullRequestId] && (
+                                        <>
+                                          <span>•</span>
+                                          <span
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: "4px",
+                                              padding: "2px 6px",
+                                              borderRadius: "4px",
+                                              fontSize: "10px",
+                                              fontWeight: "600",
+                                              backgroundColor:
+                                                this.getApprovalStatusColor(
+                                                  prBuildStatuses[
+                                                    pr.pullRequestId
+                                                  ].approvalStatus
+                                                ),
+                                              color: "#fff",
+                                            }}
+                                          >
+                                            <Icon
+                                              iconName={this.getApprovalStatusIcon(
+                                                prBuildStatuses[
+                                                  pr.pullRequestId
+                                                ].approvalStatus
+                                              )}
+                                              style={{ fontSize: "8px" }}
+                                            />
+                                            {this.getApprovalStatusText(
+                                              prBuildStatuses[pr.pullRequestId]
+                                                .approvalStatus
+                                            )}
+                                            {prBuildStatuses[pr.pullRequestId]
+                                              .reviewerCount > 0 && (
+                                              <span style={{ opacity: 0.8 }}>
+                                                (
+                                                {
+                                                  prBuildStatuses[
+                                                    pr.pullRequestId
+                                                  ].reviewerCount
+                                                }
+                                                )
+                                              </span>
+                                            )}
                                           </span>
-                                        )}
-                                      </span>
-                                    </>
-                                  )}
+                                        </>
+                                      )}
 
-                                  {/* Ready to Merge Indicator */}
-                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId] && 
-                                   this.isPullRequestReadyToMerge(pr, prBuildStatuses[pr.pullRequestId]) && (
-                                    <>
-                                      <span>•</span>
-                                      <span
-                                        style={{
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "4px",
-                                          padding: "2px 6px",
-                                          borderRadius: "4px",
-                                          fontSize: "10px",
-                                          fontWeight: "600",
-                                          backgroundColor: "#107c10",
-                                          color: "#fff",
-                                        }}
-                                      >
-                                        <Icon iconName="Completed" style={{ fontSize: "8px" }} />
-                                        READY TO MERGE
-                                      </span>
-                                    </>
-                                  )}
+                                    {/* Ready to Merge Indicator */}
+                                    {pr.pullRequestId &&
+                                      prBuildStatuses[pr.pullRequestId] &&
+                                      this.isPullRequestReadyToMerge(
+                                        pr,
+                                        prBuildStatuses[pr.pullRequestId]
+                                      ) && (
+                                        <>
+                                          <span>•</span>
+                                          <span
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: "4px",
+                                              padding: "2px 6px",
+                                              borderRadius: "4px",
+                                              fontSize: "10px",
+                                              fontWeight: "600",
+                                              backgroundColor: "#107c10",
+                                              color: "#fff",
+                                            }}
+                                          >
+                                            <Icon
+                                              iconName="Completed"
+                                              style={{ fontSize: "8px" }}
+                                            />
+                                            READY TO MERGE
+                                          </span>
+                                        </>
+                                      )}
 
-                                  {/* Auto-complete indicator */}
-                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId]?.hasAutoComplete && (
-                                    <>
-                                      <span>•</span>
-                                      <span
-                                        style={{
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "4px",
-                                          padding: "2px 6px",
-                                          borderRadius: "4px",
-                                          fontSize: "10px",
-                                          fontWeight: "600",
-                                          backgroundColor: "#0078d4",
-                                          color: "#fff",
-                                        }}
-                                      >
-                                        <Icon iconName="AutoFillTemplate" style={{ fontSize: "8px" }} />
-                                        AUTO-COMPLETE
-                                      </span>
-                                    </>
-                                  )}
+                                    {/* Auto-complete indicator */}
+                                    {pr.pullRequestId &&
+                                      prBuildStatuses[pr.pullRequestId]
+                                        ?.hasAutoComplete && (
+                                        <>
+                                          <span>•</span>
+                                          <span
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: "4px",
+                                              padding: "2px 6px",
+                                              borderRadius: "4px",
+                                              fontSize: "10px",
+                                              fontWeight: "600",
+                                              backgroundColor: "#0078d4",
+                                              color: "#fff",
+                                            }}
+                                          >
+                                            <Icon
+                                              iconName="AutoFillTemplate"
+                                              style={{ fontSize: "8px" }}
+                                            />
+                                            AUTO-COMPLETE
+                                          </span>
+                                        </>
+                                      )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
 
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                              }}
-                            >
-                              <Button
-                                text="Update from master"
-                                iconProps={{ iconName: "BranchPullRequest" }}
-                                onClick={(event) => {
-                                  event.stopPropagation(); // Prevent navigation to PR
-                                  const repoName = pr.repository?.name;
-                                  if (repoName) {
-                                    const repo = repos.find(
-                                      (r) => r.name === repoName
-                                    );
-                                    if (repo) {
-                                      this.createUpdatePRFromMaster(
-                                        repo,
-                                        pr.sourceRefName
-                                      );
-                                    }
-                                  }
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
                                 }}
-                                primary={false}
-                              />
-                              <Icon
-                                iconName="ChevronRight"
-                                style={{ color: "#666", fontSize: "12px" }}
-                              />
+                              >
+                                <Button
+                                  text="Update from master"
+                                  iconProps={{ iconName: "BranchPullRequest" }}
+                                  onClick={(event) => {
+                                    event.stopPropagation(); // Prevent navigation to PR
+                                    const repoName = pr.repository?.name;
+                                    if (repoName) {
+                                      const repo = repos.find(
+                                        (r) => r.name === repoName
+                                      );
+                                      if (repo) {
+                                        this.createUpdatePRFromMaster(
+                                          repo,
+                                          pr.sourceRefName
+                                        );
+                                      }
+                                    }
+                                  }}
+                                  primary={false}
+                                />
+                                <Icon
+                                  iconName="ChevronRight"
+                                  style={{ color: "#666", fontSize: "12px" }}
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                     </div>
                   ))}
@@ -2123,7 +2274,7 @@ export class HomePage extends React.Component<object, HomePageState> {
             alignItems: "center",
             gap: "6px",
           }}
-          title={`${EXTENSION_NAME} v${EXTENSION_VERSION} by ${PUBLISHER}`}
+          title={`${EXTENSION_NAME} v${EXTENSION_VERSION}`}
         >
           <Icon iconName="Info" style={{ fontSize: "10px" }} />v
           {EXTENSION_VERSION}
