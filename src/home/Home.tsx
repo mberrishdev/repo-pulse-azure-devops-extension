@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.45";
+const EXTENSION_VERSION = "0.0.46";
 const EXTENSION_NAME = "Repo Pulse";
 const PUBLISHER = "mberrishdev";
 import {
