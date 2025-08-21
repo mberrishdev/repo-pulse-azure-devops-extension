@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.52";
+const EXTENSION_VERSION = "0.0.54";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
