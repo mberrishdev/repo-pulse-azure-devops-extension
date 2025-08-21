@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.51";
+const EXTENSION_VERSION = "0.0.52";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -1499,18 +1499,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         `No draft pull requests to publish in "${groupTitle}"`,
         "info"
       );
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Are you sure you want to publish all ${
-        draftPRs.length
-      } draft pull request${
-        draftPRs.length !== 1 ? "s" : ""
-      } in "${groupTitle}"? This will make them ready for review.`
-    );
-
-    if (!confirmed) {
       return;
     }
 
