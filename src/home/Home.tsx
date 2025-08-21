@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.47";
+const EXTENSION_VERSION = "0.0.48";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -196,7 +196,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       repos: [],
       pullRequests: [],
       loading: true,
-      selectedTabId: "repositories",
+      selectedTabId: this.getInitialTabFromUrl(),
       groupedPullRequests: {},
       buildStatuses: {},
       favoriteRepoIds: new Set<string>(),
@@ -213,6 +213,8 @@ export class HomePage extends React.Component<object, HomePageState> {
       await SDK.init({ applyTheme: true });
       await SDK.ready();
 
+      this.setupBrowserHistorySupport();
+
       await this.initializeConfig();
       await this.initializeSDKClients();
 
@@ -227,6 +229,30 @@ export class HomePage extends React.Component<object, HomePageState> {
       await this.showToast("Failed to initialize extension", "error");
     }
   }
+
+  public componentWillUnmount() {
+    // Clean up browser history event listener
+    window.removeEventListener("popstate", this.handlePopState);
+  }
+
+  private setupBrowserHistorySupport = () => {
+    // Listen for browser back/forward navigation
+    window.addEventListener("popstate", this.handlePopState);
+
+    // Set initial URL state if not already set
+    const currentTab = this.getQueryParam("tab");
+    if (!currentTab) {
+      this.setQueryParam("tab", this.state.selectedTabId);
+    }
+  };
+
+  private handlePopState = () => {
+    // Update tab based on URL when user navigates with browser back/forward
+    const tabFromUrl = this.getInitialTabFromUrl();
+    if (tabFromUrl !== this.state.selectedTabId) {
+      this.setState({ selectedTabId: tabFromUrl });
+    }
+  };
 
   private async checkPermissions() {
     try {
@@ -776,6 +802,10 @@ export class HomePage extends React.Component<object, HomePageState> {
   };
 
   private onTabChanged = (selectedTabId: string) => {
+    // Update the URL query parameter
+    this.setQueryParam("tab", selectedTabId);
+
+    // Update the state
     this.setState({ selectedTabId });
   };
 
@@ -1115,9 +1145,19 @@ export class HomePage extends React.Component<object, HomePageState> {
         throw new Error("Project context or build client not available");
       }
 
-      // Set loading state for this specific repo
       this.setState((prevState) => ({
         triggeringRepoIds: new Set(prevState.triggeringRepoIds).add(repoId),
+        buildStatuses: {
+          ...prevState.buildStatuses,
+          [repoId]: {
+            ...prevState.buildStatuses[repoId],
+            status: BuildStatus.InProgress,
+            result: undefined,
+            buildNumber: undefined,
+            buildId: undefined,
+            isLoading: false,
+          },
+        },
       }));
 
       const buildToQueue = {
@@ -1131,6 +1171,19 @@ export class HomePage extends React.Component<object, HomePageState> {
         buildToQueue as any,
         projectInfo.id || projectInfo.name
       );
+
+      this.setState((prevState) => ({
+        buildStatuses: {
+          ...prevState.buildStatuses,
+          [repoId]: {
+            ...prevState.buildStatuses[repoId],
+            status: BuildStatus.InProgress,
+            buildNumber: build.buildNumber,
+            buildId: build.id,
+            isLoading: false,
+          },
+        },
+      }));
 
       await this.showToast(
         `Pipeline triggered successfully for ${repoName} (Build #${build.buildNumber})`,
@@ -1284,6 +1337,40 @@ export class HomePage extends React.Component<object, HomePageState> {
   private clearRepoSelection = () => {
     this.setState({ selectedRepoIds: new Set() });
   };
+
+  private getQueryParam(param: string): string | null {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(param);
+    } catch (error) {
+      console.error("Error reading query parameters:", error);
+      return null;
+    }
+  }
+
+  private setQueryParam(param: string, value: string) {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set(param, value);
+
+      // Update the URL without reloading the page
+      window.history.replaceState({}, "", url.toString());
+    } catch (error) {
+      console.error("Error setting query parameters:", error);
+    }
+  }
+
+  private getInitialTabFromUrl(): string {
+    const tabParam = this.getQueryParam("tab");
+
+    // Validate the tab parameter
+    if (tabParam === "repositories" || tabParam === "pullrequests") {
+      return tabParam;
+    }
+
+    // Default to repositories if no valid tab parameter
+    return "repositories";
+  }
 
   private toggleFavorite = async (repoId: string) => {
     try {
