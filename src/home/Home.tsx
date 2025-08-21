@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.44";
+const EXTENSION_VERSION = "0.0.45";
 const EXTENSION_NAME = "Repo Pulse";
 const PUBLISHER = "mberrishdev";
 import {
@@ -40,6 +40,8 @@ interface HomePageState {
   selectedRepoIds: Set<string>;
   isTriggeringPipelines: boolean;
   triggeringRepoIds: Set<string>;
+  prBuildStatuses: Record<number, PullRequestBuildStatus>;
+  loadingPRBuilds: boolean;
 }
 
 interface RepositoryBuildStatus {
@@ -52,6 +54,18 @@ interface RepositoryBuildStatus {
   isLoading: boolean;
   definitionId?: number;
   definitionName?: string;
+}
+
+interface PullRequestBuildStatus {
+  status: BuildStatus;
+  result?: BuildResult;
+  buildNumber?: string;
+  buildId?: number;
+  isLoading: boolean;
+  approvalStatus: 'approved' | 'waiting-for-author' | 'rejected' | 'pending' | 'unknown';
+  reviewerCount: number;
+  requiredReviewerCount: number;
+  hasAutoComplete: boolean;
 }
 
 interface HomePageConfig {
@@ -182,6 +196,8 @@ export class HomePage extends React.Component<object, HomePageState> {
       selectedRepoIds: new Set<string>(),
       isTriggeringPipelines: false,
       triggeringRepoIds: new Set<string>(),
+      prBuildStatuses: {},
+      loadingPRBuilds: false,
     };
   }
 
@@ -561,6 +577,9 @@ export class HomePage extends React.Component<object, HomePageState> {
         pullRequests: allPullRequests,
         groupedPullRequests,
       });
+
+      // Load build statuses for pull requests
+      await this.loadPullRequestBuildStatuses(allPullRequests);
     } catch (error: unknown) {
       console.error("Failed to load pull requests:", error);
       const errorMessage =
@@ -596,6 +615,127 @@ export class HomePage extends React.Component<object, HomePageState> {
         );
       }
     }
+  }
+
+  private async loadPullRequestBuildStatuses(pullRequests: GitPullRequest[]) {
+    if (!pullRequests.length || !this.buildClient) {
+      return;
+    }
+
+    this.setState({ loadingPRBuilds: true });
+
+    const statusPromises = pullRequests.map(async (pr) => {
+      if (!pr.pullRequestId) return;
+
+      try {
+        // Initialize loading state for this PR
+        this.setState((prevState) => ({
+          prBuildStatuses: {
+            ...prevState.prBuildStatuses,
+            [pr.pullRequestId!]: {
+              status: BuildStatus.None,
+              isLoading: true,
+              approvalStatus: 'unknown',
+              reviewerCount: 0,
+              requiredReviewerCount: 0,
+              hasAutoComplete: false,
+            },
+          },
+        }));
+
+        // Get build status for the PR
+        const builds = await this.buildClient!.getBuilds(
+          pr.repository?.project?.name || '',
+          undefined, // definitions
+          undefined, // queues
+          undefined, // buildNumber
+          undefined, // minTime
+          undefined, // maxTime
+          undefined, // requestedFor
+          undefined, // reasonFilter
+          undefined, // statusFilter
+          undefined, // resultFilter
+          undefined, // tagFilters
+          undefined, // properties
+          5, // top - get recent builds
+          undefined, // continuationToken
+          undefined, // maxBuildsPerDefinition
+          undefined, // deletedFilter
+          undefined, // queryOrder
+          pr.sourceRefName // branch filter
+        );
+
+        // Find the most recent build for this PR's source branch
+        const latestBuild = builds.find(build => 
+          build.sourceBranch === pr.sourceRefName || 
+          build.triggerInfo?.['pr.number'] === pr.pullRequestId?.toString()
+        );
+
+        // Get approval status information
+        let approvalStatus: 'approved' | 'waiting-for-author' | 'rejected' | 'pending' | 'unknown' = 'unknown';
+        let reviewerCount = 0;
+        let requiredReviewerCount = 0;
+
+        if (pr.reviewers && pr.reviewers.length > 0) {
+          const approvedReviewers = pr.reviewers.filter(r => r.vote === 10); // 10 = approved
+          const rejectedReviewers = pr.reviewers.filter(r => r.vote === -10); // -10 = rejected
+          const waitingReviewers = pr.reviewers.filter(r => r.vote === -5); // -5 = waiting for author
+          
+          reviewerCount = pr.reviewers.length;
+          requiredReviewerCount = pr.reviewers.filter(r => r.isRequired).length;
+
+          if (rejectedReviewers.length > 0) {
+            approvalStatus = 'rejected';
+          } else if (waitingReviewers.length > 0) {
+            approvalStatus = 'waiting-for-author';
+          } else if (approvedReviewers.length > 0 && approvedReviewers.length >= requiredReviewerCount) {
+            approvalStatus = 'approved';
+          } else {
+            approvalStatus = 'pending';
+          }
+        }
+
+        const prBuildStatus: PullRequestBuildStatus = {
+          status: latestBuild?.status || BuildStatus.None,
+          result: latestBuild?.result,
+          buildNumber: latestBuild?.buildNumber,
+          buildId: latestBuild?.id,
+          isLoading: false,
+          approvalStatus,
+          reviewerCount,
+          requiredReviewerCount,
+          hasAutoComplete: !!pr.autoCompleteSetBy,
+        };
+
+        this.setState((prevState) => ({
+          prBuildStatuses: {
+            ...prevState.prBuildStatuses,
+            [pr.pullRequestId!]: prBuildStatus,
+          },
+        }));
+
+      } catch (error) {
+        console.error(`Failed to load build status for PR ${pr.pullRequestId}:`, error);
+        
+        // Set error state for this PR
+        this.setState((prevState) => ({
+          prBuildStatuses: {
+            ...prevState.prBuildStatuses,
+            [pr.pullRequestId!]: {
+              status: BuildStatus.None,
+              isLoading: false,
+              approvalStatus: 'unknown',
+              reviewerCount: 0,
+              requiredReviewerCount: 0,
+              hasAutoComplete: false,
+            },
+          },
+        }));
+      }
+    });
+
+    await Promise.allSettled(statusPromises);
+    this.setState({ loadingPRBuilds: false });
   }
 
   private groupPullRequests = (
@@ -721,6 +861,70 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
 
     return "BuildDefinition";
+  };
+
+  private getApprovalStatusColor = (approvalStatus: string): string => {
+    switch (approvalStatus) {
+      case 'approved':
+        return "#107c10"; // Green
+      case 'rejected':
+        return "#d13438"; // Red
+      case 'waiting-for-author':
+        return "#ff8c00"; // Orange
+      case 'pending':
+        return "#0078d4"; // Blue
+      default:
+        return "#666666"; // Gray
+    }
+  };
+
+  private getApprovalStatusText = (approvalStatus: string): string => {
+    switch (approvalStatus) {
+      case 'approved':
+        return "Approved";
+      case 'rejected':
+        return "Rejected";
+      case 'waiting-for-author':
+        return "Waiting for Author";
+      case 'pending':
+        return "Pending Review";
+      default:
+        return "Unknown";
+    }
+  };
+
+  private getApprovalStatusIcon = (approvalStatus: string): string => {
+    switch (approvalStatus) {
+      case 'approved':
+        return "CheckMark";
+      case 'rejected':
+        return "Cancel";
+      case 'waiting-for-author':
+        return "Warning";
+      case 'pending':
+        return "Clock";
+      default:
+        return "Unknown";
+    }
+  };
+
+  private isPullRequestReadyToMerge = (pr: GitPullRequest, prBuildStatus?: PullRequestBuildStatus): boolean => {
+    if (!prBuildStatus) return false;
+    
+    // Check if PR is active
+    if (pr.status !== PullRequestStatus.Active) return false;
+    
+    // Check if it's not a draft
+    if (pr.isDraft) return false;
+    
+    // Check if builds are passing
+    const buildsPassing = prBuildStatus.status === BuildStatus.Completed && 
+                         prBuildStatus.result === BuildResult.Succeeded;
+    
+    // Check if approved
+    const isApproved = prBuildStatus.approvalStatus === 'approved';
+    
+    return buildsPassing && isApproved;
   };
 
   /**
@@ -1101,6 +1305,8 @@ export class HomePage extends React.Component<object, HomePageState> {
       selectedRepoIds,
       isTriggeringPipelines,
       triggeringRepoIds,
+      prBuildStatuses,
+      loadingPRBuilds,
     } = this.state;
 
     return (
@@ -1694,65 +1900,127 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   >
                                     {pr.isDraft ? "DRAFT" : "ACTIVE"}
                                   </span>
-                                  {(
-                                    pr as GitPullRequest & {
-                                      buildStatus?: {
-                                        id: number;
-                                        status: string;
-                                        result: string;
-                                        url: string;
-                                      };
-                                    }
-                                  ).buildStatus && (
+                                  
+                                  {/* Build Status */}
+                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId] && (
                                     <>
                                       <span>•</span>
                                       <span
                                         style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "4px",
                                           padding: "2px 6px",
                                           borderRadius: "4px",
                                           fontSize: "10px",
                                           fontWeight: "600",
-                                          backgroundColor:
-                                            (
-                                              pr as GitPullRequest & {
-                                                buildStatus?: {
-                                                  id: number;
-                                                  status: string;
-                                                  result: string;
-                                                  url: string;
-                                                };
-                                              }
-                                            ).buildStatus?.result ===
-                                            "succeeded"
-                                              ? "#107c10"
-                                              : (
-                                                  pr as GitPullRequest & {
-                                                    buildStatus?: {
-                                                      id: number;
-                                                      status: string;
-                                                      result: string;
-                                                      url: string;
-                                                    };
-                                                  }
-                                                ).buildStatus?.result ===
-                                                "failed"
-                                              ? "#d13438"
-                                              : "#ff8c00",
+                                          backgroundColor: this.getBuildStatusColor(
+                                            prBuildStatuses[pr.pullRequestId].status,
+                                            prBuildStatuses[pr.pullRequestId].result
+                                          ),
                                           color: "#fff",
                                         }}
                                       >
-                                        BUILD{" "}
-                                        {(
-                                          pr as GitPullRequest & {
-                                            buildStatus?: {
-                                              id: number;
-                                              status: string;
-                                              result: string;
-                                              url: string;
-                                            };
-                                          }
-                                        ).buildStatus?.result?.toUpperCase() ||
-                                          "UNKNOWN"}
+                                        <Icon
+                                          iconName={this.getBuildStatusIcon(
+                                            prBuildStatuses[pr.pullRequestId].status,
+                                            prBuildStatuses[pr.pullRequestId].result
+                                          )}
+                                          style={{ fontSize: "8px" }}
+                                        />
+                                        {prBuildStatuses[pr.pullRequestId].isLoading
+                                          ? "Loading..."
+                                          : this.getBuildStatusText(
+                                              prBuildStatuses[pr.pullRequestId].status,
+                                              prBuildStatuses[pr.pullRequestId].result
+                                            )}
+                                        {prBuildStatuses[pr.pullRequestId].buildNumber && (
+                                          <span style={{ opacity: 0.8 }}>
+                                            #{prBuildStatuses[pr.pullRequestId].buildNumber}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </>
+                                  )}
+
+                                  {/* Approval Status */}
+                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId] && (
+                                    <>
+                                      <span>•</span>
+                                      <span
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          padding: "2px 6px",
+                                          borderRadius: "4px",
+                                          fontSize: "10px",
+                                          fontWeight: "600",
+                                          backgroundColor: this.getApprovalStatusColor(
+                                            prBuildStatuses[pr.pullRequestId].approvalStatus
+                                          ),
+                                          color: "#fff",
+                                        }}
+                                      >
+                                        <Icon
+                                          iconName={this.getApprovalStatusIcon(
+                                            prBuildStatuses[pr.pullRequestId].approvalStatus
+                                          )}
+                                          style={{ fontSize: "8px" }}
+                                        />
+                                        {this.getApprovalStatusText(prBuildStatuses[pr.pullRequestId].approvalStatus)}
+                                        {prBuildStatuses[pr.pullRequestId].reviewerCount > 0 && (
+                                          <span style={{ opacity: 0.8 }}>
+                                            ({prBuildStatuses[pr.pullRequestId].reviewerCount})
+                                          </span>
+                                        )}
+                                      </span>
+                                    </>
+                                  )}
+
+                                  {/* Ready to Merge Indicator */}
+                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId] && 
+                                   this.isPullRequestReadyToMerge(pr, prBuildStatuses[pr.pullRequestId]) && (
+                                    <>
+                                      <span>•</span>
+                                      <span
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          padding: "2px 6px",
+                                          borderRadius: "4px",
+                                          fontSize: "10px",
+                                          fontWeight: "600",
+                                          backgroundColor: "#107c10",
+                                          color: "#fff",
+                                        }}
+                                      >
+                                        <Icon iconName="Completed" style={{ fontSize: "8px" }} />
+                                        READY TO MERGE
+                                      </span>
+                                    </>
+                                  )}
+
+                                  {/* Auto-complete indicator */}
+                                  {pr.pullRequestId && prBuildStatuses[pr.pullRequestId]?.hasAutoComplete && (
+                                    <>
+                                      <span>•</span>
+                                      <span
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          padding: "2px 6px",
+                                          borderRadius: "4px",
+                                          fontSize: "10px",
+                                          fontWeight: "600",
+                                          backgroundColor: "#0078d4",
+                                          color: "#fff",
+                                        }}
+                                      >
+                                        <Icon iconName="AutoFillTemplate" style={{ fontSize: "8px" }} />
+                                        AUTO-COMPLETE
                                       </span>
                                     </>
                                   )}
