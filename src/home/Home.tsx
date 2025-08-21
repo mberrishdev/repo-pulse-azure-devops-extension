@@ -593,8 +593,9 @@ export class HomePage extends React.Component<object, HomePageState> {
         throw new Error("Git client not initialized");
       }
 
+      // Get both active and draft pull requests
       const searchCriteria = {
-        status: PullRequestStatus.Active,
+        status: PullRequestStatus.Active, // This includes both active and draft PRs
       };
 
       // Try to get pull requests with more detailed information
@@ -900,7 +901,17 @@ export class HomePage extends React.Component<object, HomePageState> {
   ): Record<string, GitPullRequest[]> => {
     const groups: Record<string, GitPullRequest[]> = {};
 
-    pullRequests.forEach((pr) => {
+    // Separate draft and active PRs
+    const draftPRs = pullRequests.filter(pr => pr.isDraft);
+    const activePRs = pullRequests.filter(pr => !pr.isDraft);
+
+    // Group draft PRs under a special "Draft Pull Requests" group
+    if (draftPRs.length > 0) {
+      groups["🚧 Draft Pull Requests"] = draftPRs;
+    }
+
+    // Group active PRs by title as before
+    activePRs.forEach((pr) => {
       const title = pr.title || "Untitled";
 
       if (!groups[title]) {
@@ -2043,42 +2054,63 @@ export class HomePage extends React.Component<object, HomePageState> {
                     gap: "24px",
                   }}
                 >
-                  {Object.entries(groupedPullRequests).map(([prTitle, prs]) => (
-                    <div key={prTitle}>
-                      <div
-                        style={{
-                          marginBottom: "16px",
-                          padding: "12px 16px",
-                          backgroundColor: "white",
-                          border: "1px solid #e1e1e1",
-                          borderRadius: "6px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                        }}
-                      >
+                  {Object.entries(groupedPullRequests).map(([prTitle, prs]) => {
+                    const isDraftGroup = prTitle === "🚧 Draft Pull Requests";
+                    
+                    return (
+                      <div key={prTitle}>
                         <div
                           style={{
+                            marginBottom: "16px",
+                            padding: "12px 16px",
+                            backgroundColor: isDraftGroup ? "#fff8e1" : "white",
+                            border: isDraftGroup ? "1px solid #ffb74d" : "1px solid #e1e1e1",
+                            borderRadius: "6px",
                             display: "flex",
                             alignItems: "center",
-                            gap: "12px",
+                            justifyContent: "space-between",
                           }}
                         >
-                          <Icon
-                            iconName="BranchPullRequest"
-                            style={{ color: "#0078d4", fontSize: "16px" }}
-                          />
-                          <h3
-                            className="title-small"
+                          <div
                             style={{
-                              margin: 0,
-                              color: "#323130",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
                             }}
                           >
-                            {prTitle} ({prs.length} pull requests)
-                          </h3>
+                            <Icon
+                              iconName={isDraftGroup ? "EditNote" : "BranchPullRequest"}
+                              style={{ 
+                                color: isDraftGroup ? "#f57c00" : "#0078d4", 
+                                fontSize: "16px" 
+                              }}
+                            />
+                            <h3
+                              className="title-small"
+                              style={{
+                                margin: 0,
+                                color: isDraftGroup ? "#f57c00" : "#323130",
+                                fontWeight: isDraftGroup ? "700" : "600",
+                              }}
+                            >
+                              {prTitle} ({prs.length} pull request{prs.length !== 1 ? 's' : ''})
+                            </h3>
+                          </div>
+                          {isDraftGroup && (
+                            <div
+                              style={{
+                                backgroundColor: "#f57c00",
+                                color: "white",
+                                padding: "4px 8px",
+                                borderRadius: "12px",
+                                fontSize: "10px",
+                                fontWeight: "600",
+                              }}
+                            >
+                              DRAFT
+                            </div>
+                          )}
                         </div>
-                      </div>
 
                       <div
                         style={{
@@ -2413,7 +2445,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                           ))}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
