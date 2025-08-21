@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.50";
+const EXTENSION_VERSION = "0.0.51";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -111,7 +111,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         return;
       }
 
-      // Use localStorage with project-specific key to store favorites
       const storageKey = `repo-pulse-favorites-${projectInfo.name}`;
       const storedFavorites = localStorage.getItem(storageKey);
 
@@ -121,7 +120,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       }
     } catch (error) {
       console.error("Failed to load favorite repositories:", error);
-      // Don't show a toast for this as it's not critical functionality
     }
   }
 
@@ -901,17 +899,8 @@ export class HomePage extends React.Component<object, HomePageState> {
   ): Record<string, GitPullRequest[]> => {
     const groups: Record<string, GitPullRequest[]> = {};
 
-    // Separate draft and active PRs
-    const draftPRs = pullRequests.filter(pr => pr.isDraft);
-    const activePRs = pullRequests.filter(pr => !pr.isDraft);
-
-    // Group draft PRs under a special "Draft Pull Requests" group
-    if (draftPRs.length > 0) {
-      groups["🚧 Draft Pull Requests"] = draftPRs;
-    }
-
-    // Group active PRs by title as before
-    activePRs.forEach((pr) => {
+    // Group all PRs (draft and active) by title
+    pullRequests.forEach((pr) => {
       const title = pr.title || "Untitled";
 
       if (!groups[title]) {
@@ -1086,18 +1075,14 @@ export class HomePage extends React.Component<object, HomePageState> {
   ): boolean => {
     if (!prBuildStatus) return false;
 
-    // Check if PR is active
     if (pr.status !== PullRequestStatus.Active) return false;
 
-    // Check if it's not a draft
     if (pr.isDraft) return false;
 
-    // Check if builds are passing
     const buildsPassing =
       prBuildStatus.status === BuildStatus.Completed &&
       prBuildStatus.result === BuildResult.Succeeded;
 
-    // Check if approved
     const isApproved = prBuildStatus.approvalStatus === "approved";
 
     return buildsPassing && isApproved;
@@ -1458,6 +1443,125 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private clearRepoSelection = () => {
     this.setState({ selectedRepoIds: new Set() });
+  };
+
+  private publishDraftPR = async (pr: GitPullRequest) => {
+    try {
+      if (!this.gitClient || !pr.pullRequestId || !pr.repository?.id) {
+        throw new Error("Git client not initialized or PR data incomplete");
+      }
+
+      // Update the PR to set isDraft to false
+      const updatedPR: Partial<GitPullRequest> = {
+        isDraft: false,
+      };
+
+      await this.gitClient.updatePullRequest(
+        updatedPR as GitPullRequest,
+        pr.repository.id,
+        pr.pullRequestId
+      );
+
+      await this.showToast(
+        `Draft PR "${pr.title}" has been published and is now ready for review!`,
+        "success"
+      );
+
+      // Refresh pull requests to reflect the change
+      await this.loadPullRequests();
+    } catch (error) {
+      console.error(`Failed to publish draft PR ${pr.pullRequestId}:`, error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      if (errorMessage.includes("403") || errorMessage.includes("401")) {
+        await this.showToast(
+          `Permission denied: Cannot publish draft PR "${pr.title}". Contact your Azure DevOps administrator.`,
+          "error"
+        );
+      } else {
+        await this.showToast(
+          `Failed to publish draft PR "${pr.title}": ${errorMessage}`,
+          "error"
+        );
+      }
+    }
+  };
+
+  private publishAllDraftsInGroup = async (
+    groupTitle: string,
+    prs: GitPullRequest[]
+  ) => {
+    const draftPRs = prs.filter((pr) => pr.isDraft);
+
+    if (draftPRs.length === 0) {
+      await this.showToast(
+        `No draft pull requests to publish in "${groupTitle}"`,
+        "info"
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to publish all ${
+        draftPRs.length
+      } draft pull request${
+        draftPRs.length !== 1 ? "s" : ""
+      } in "${groupTitle}"? This will make them ready for review.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    const publishPromises = draftPRs.map(async (pr) => {
+      try {
+        if (!this.gitClient || !pr.pullRequestId || !pr.repository?.id) {
+          throw new Error("Git client not initialized or PR data incomplete");
+        }
+
+        const updatedPR: Partial<GitPullRequest> = {
+          isDraft: false,
+        };
+
+        await this.gitClient.updatePullRequest(
+          updatedPR as GitPullRequest,
+          pr.repository.id,
+          pr.pullRequestId
+        );
+
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to publish draft PR ${pr.pullRequestId}:`, error);
+        errorCount++;
+      }
+    });
+
+    await Promise.allSettled(publishPromises);
+
+    if (successCount > 0) {
+      await this.showToast(
+        `Successfully published ${successCount} draft pull request${
+          successCount !== 1 ? "s" : ""
+        } from "${groupTitle}"!`,
+        "success"
+      );
+    }
+
+    if (errorCount > 0) {
+      await this.showToast(
+        `Failed to publish ${errorCount} draft pull request${
+          errorCount !== 1 ? "s" : ""
+        } from "${groupTitle}"`,
+        "error"
+      );
+    }
+
+    // Refresh pull requests to reflect the changes
+    await this.loadPullRequests();
   };
 
   private getQueryParam(param: string): string | null {
@@ -2055,16 +2159,17 @@ export class HomePage extends React.Component<object, HomePageState> {
                   }}
                 >
                   {Object.entries(groupedPullRequests).map(([prTitle, prs]) => {
-                    const isDraftGroup = prTitle === "🚧 Draft Pull Requests";
-                    
+                    const hasDraftPRs = prs.some((pr) => pr.isDraft);
+                    const draftCount = prs.filter((pr) => pr.isDraft).length;
+
                     return (
                       <div key={prTitle}>
                         <div
                           style={{
                             marginBottom: "16px",
                             padding: "12px 16px",
-                            backgroundColor: isDraftGroup ? "#fff8e1" : "white",
-                            border: isDraftGroup ? "1px solid #ffb74d" : "1px solid #e1e1e1",
+                            backgroundColor: "white",
+                            border: "1px solid #e1e1e1",
                             borderRadius: "6px",
                             display: "flex",
                             alignItems: "center",
@@ -2079,201 +2184,206 @@ export class HomePage extends React.Component<object, HomePageState> {
                             }}
                           >
                             <Icon
-                              iconName={isDraftGroup ? "EditNote" : "BranchPullRequest"}
-                              style={{ 
-                                color: isDraftGroup ? "#f57c00" : "#0078d4", 
-                                fontSize: "16px" 
+                              iconName="BranchPullRequest"
+                              style={{
+                                color: "#0078d4",
+                                fontSize: "16px",
                               }}
                             />
                             <h3
                               className="title-small"
                               style={{
                                 margin: 0,
-                                color: isDraftGroup ? "#f57c00" : "#323130",
-                                fontWeight: isDraftGroup ? "700" : "600",
-                              }}
-                            >
-                              {prTitle} ({prs.length} pull request{prs.length !== 1 ? 's' : ''})
-                            </h3>
-                          </div>
-                          {isDraftGroup && (
-                            <div
-                              style={{
-                                backgroundColor: "#f57c00",
-                                color: "white",
-                                padding: "4px 8px",
-                                borderRadius: "12px",
-                                fontSize: "10px",
+                                color: "#323130",
                                 fontWeight: "600",
                               }}
                             >
-                              DRAFT
-                            </div>
+                              {prTitle} ({prs.length} pull request
+                              {prs.length !== 1 ? "s" : ""})
+                              {hasDraftPRs && (
+                                <span
+                                  style={{
+                                    color: "#f57c00",
+                                    fontSize: "12px",
+                                    marginLeft: "8px",
+                                  }}
+                                >
+                                  ({draftCount} draft
+                                  {draftCount !== 1 ? "s" : ""})
+                                </span>
+                              )}
+                            </h3>
+                          </div>
+                          {hasDraftPRs && (
+                            <Button
+                              text={`Publish ${draftCount} Draft${
+                                draftCount !== 1 ? "s" : ""
+                              }`}
+                              iconProps={{ iconName: "PublishContent" }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                this.publishAllDraftsInGroup(prTitle, prs);
+                              }}
+                              primary={true}
+                              subtle={false}
+                              tooltipProps={{
+                                text: `Publish all ${draftCount} draft pull request${
+                                  draftCount !== 1 ? "s" : ""
+                                } in "${prTitle}" group`,
+                              }}
+                            />
                           )}
                         </div>
 
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "8px",
-                        }}
-                      >
-                        {prs
-                          .filter((pr) => pr && pr.pullRequestId)
-                          .map((pr) => (
-                            <div
-                              key={pr.pullRequestId}
-                              style={{
-                                backgroundColor: "white",
-                                border: "1px solid #e1e1e1",
-                                borderRadius: "6px",
-                                padding: "16px 20px",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                transition:
-                                  "box-shadow 0.2s ease, border-color 0.2s ease",
-                                cursor: "pointer",
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.boxShadow =
-                                  "0 2px 8px rgba(0,0,0,0.1)";
-                                e.currentTarget.style.borderColor = "#0078d4";
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.boxShadow = "none";
-                                e.currentTarget.style.borderColor = "#e1e1e1";
-                              }}
-                              onClick={() => {
-                                const projectInfo = this.getProjectInfo();
-
-                                if (projectInfo?.name) {
-                                  const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
-                                  this.navigateToUrl(prUrl);
-                                }
-                              }}
-                            >
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "8px",
+                          }}
+                        >
+                          {prs
+                            .filter((pr) => pr && pr.pullRequestId)
+                            .map((pr) => (
                               <div
+                                key={pr.pullRequestId}
                                 style={{
+                                  backgroundColor: "white",
+                                  border: "1px solid #e1e1e1",
+                                  borderRadius: "6px",
+                                  padding: "16px 20px",
                                   display: "flex",
                                   alignItems: "center",
-                                  gap: "16px",
-                                  flex: 1,
+                                  justifyContent: "space-between",
+                                  transition:
+                                    "box-shadow 0.2s ease, border-color 0.2s ease",
+                                  cursor: "pointer",
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.boxShadow =
+                                    "0 2px 8px rgba(0,0,0,0.1)";
+                                  e.currentTarget.style.borderColor = "#0078d4";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.boxShadow = "none";
+                                  e.currentTarget.style.borderColor = "#e1e1e1";
+                                }}
+                                onClick={() => {
+                                  const projectInfo = this.getProjectInfo();
+
+                                  if (projectInfo?.name) {
+                                    const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                                    this.navigateToUrl(prUrl);
+                                  }
                                 }}
                               >
                                 <div
                                   style={{
-                                    width: "32px",
-                                    height: "32px",
-                                    borderRadius: "50%",
-                                    backgroundColor: this.getStatusColor(
-                                      pr.status || 0
-                                    ),
                                     display: "flex",
                                     alignItems: "center",
-                                    justifyContent: "center",
-                                    color: "white",
-                                    fontWeight: "600",
-                                    fontSize: "14px",
+                                    gap: "16px",
+                                    flex: 1,
                                   }}
                                 >
-                                  PR
-                                </div>
-
-                                <div style={{ flex: 1 }}>
                                   <div
                                     style={{
-                                      fontSize: "16px",
-                                      fontWeight: "600",
-                                      color: "#323130",
-                                      marginBottom: "4px",
-                                    }}
-                                  >
-                                    {pr.repository?.name} -{" "}
-                                    {pr.sourceRefName?.replace(
-                                      "refs/heads/",
-                                      ""
-                                    )}{" "}
-                                    →{" "}
-                                    {pr.targetRefName?.replace(
-                                      "refs/heads/",
-                                      ""
-                                    )}
-                                  </div>
-                                  <div
-                                    style={{
-                                      fontSize: "12px",
-                                      color: "#666",
+                                      width: "32px",
+                                      height: "32px",
+                                      borderRadius: "50%",
+                                      backgroundColor: this.getStatusColor(
+                                        pr.status || 0
+                                      ),
                                       display: "flex",
                                       alignItems: "center",
-                                      gap: "12px",
-                                      flexWrap: "wrap",
+                                      justifyContent: "center",
+                                      color: "white",
+                                      fontWeight: "600",
+                                      fontSize: "14px",
                                     }}
                                   >
-                                    <span>
-                                      Status:{" "}
-                                      {this.getStatusText(pr.status || 0)}
-                                    </span>
-                                    <span>•</span>
-                                    <span>ID: #{pr.pullRequestId}</span>
-                                    <span>•</span>
-                                    <span
+                                    PR
+                                  </div>
+
+                                  <div style={{ flex: 1 }}>
+                                    <div
                                       style={{
-                                        padding: "2px 6px",
-                                        borderRadius: "4px",
-                                        fontSize: "10px",
+                                        fontSize: "16px",
                                         fontWeight: "600",
-                                        backgroundColor: pr.isDraft
-                                          ? "#ffd700"
-                                          : "#107c10",
-                                        color: pr.isDraft ? "#000" : "#fff",
+                                        color: "#323130",
+                                        marginBottom: "4px",
                                       }}
                                     >
-                                      {pr.isDraft ? "DRAFT" : "ACTIVE"}
-                                    </span>
+                                      {pr.repository?.name} -{" "}
+                                      {pr.sourceRefName?.replace(
+                                        "refs/heads/",
+                                        ""
+                                      )}{" "}
+                                      →{" "}
+                                      {pr.targetRefName?.replace(
+                                        "refs/heads/",
+                                        ""
+                                      )}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "#666",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "12px",
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
+                                      <span>
+                                        Status:{" "}
+                                        {this.getStatusText(pr.status || 0)}
+                                      </span>
+                                      <span>•</span>
+                                      <span>ID: #{pr.pullRequestId}</span>
+                                      <span>•</span>
+                                      <span
+                                        style={{
+                                          padding: "2px 6px",
+                                          borderRadius: "4px",
+                                          fontSize: "10px",
+                                          fontWeight: "600",
+                                          backgroundColor: pr.isDraft
+                                            ? "#ffd700"
+                                            : "#107c10",
+                                          color: pr.isDraft ? "#000" : "#fff",
+                                        }}
+                                      >
+                                        {pr.isDraft ? "DRAFT" : "ACTIVE"}
+                                      </span>
 
-                                    {/* Build Status */}
-                                    {pr.pullRequestId &&
-                                      prBuildStatuses[pr.pullRequestId] && (
-                                        <>
-                                          <span>•</span>
-                                          <span
-                                            style={{
-                                              display: "flex",
-                                              alignItems: "center",
-                                              gap: "4px",
-                                              padding: "2px 6px",
-                                              borderRadius: "4px",
-                                              fontSize: "10px",
-                                              fontWeight: "600",
-                                              backgroundColor:
-                                                this.getBuildStatusColor(
-                                                  prBuildStatuses[
-                                                    pr.pullRequestId
-                                                  ].status,
-                                                  prBuildStatuses[
-                                                    pr.pullRequestId
-                                                  ].result
-                                                ),
-                                              color: "#fff",
-                                            }}
-                                          >
-                                            <Icon
-                                              iconName={this.getBuildStatusIcon(
-                                                prBuildStatuses[
-                                                  pr.pullRequestId
-                                                ].status,
-                                                prBuildStatuses[
-                                                  pr.pullRequestId
-                                                ].result
-                                              )}
-                                              style={{ fontSize: "8px" }}
-                                            />
-                                            {prBuildStatuses[pr.pullRequestId]
-                                              .isLoading
-                                              ? "Loading..."
-                                              : this.getBuildStatusText(
+                                      {/* Build Status */}
+                                      {pr.pullRequestId &&
+                                        prBuildStatuses[pr.pullRequestId] && (
+                                          <>
+                                            <span>•</span>
+                                            <span
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "4px",
+                                                padding: "2px 6px",
+                                                borderRadius: "4px",
+                                                fontSize: "10px",
+                                                fontWeight: "600",
+                                                backgroundColor:
+                                                  this.getBuildStatusColor(
+                                                    prBuildStatuses[
+                                                      pr.pullRequestId
+                                                    ].status,
+                                                    prBuildStatuses[
+                                                      pr.pullRequestId
+                                                    ].result
+                                                  ),
+                                                color: "#fff",
+                                              }}
+                                            >
+                                              <Icon
+                                                iconName={this.getBuildStatusIcon(
                                                   prBuildStatuses[
                                                     pr.pullRequestId
                                                   ].status,
@@ -2281,170 +2391,202 @@ export class HomePage extends React.Component<object, HomePageState> {
                                                     pr.pullRequestId
                                                   ].result
                                                 )}
-                                            {prBuildStatuses[pr.pullRequestId]
-                                              .buildNumber && (
-                                              <span style={{ opacity: 0.8 }}>
-                                                #
-                                                {
-                                                  prBuildStatuses[
-                                                    pr.pullRequestId
-                                                  ].buildNumber
-                                                }
-                                              </span>
-                                            )}
-                                          </span>
-                                        </>
-                                      )}
+                                                style={{ fontSize: "8px" }}
+                                              />
+                                              {prBuildStatuses[pr.pullRequestId]
+                                                .isLoading
+                                                ? "Loading..."
+                                                : this.getBuildStatusText(
+                                                    prBuildStatuses[
+                                                      pr.pullRequestId
+                                                    ].status,
+                                                    prBuildStatuses[
+                                                      pr.pullRequestId
+                                                    ].result
+                                                  )}
+                                              {prBuildStatuses[pr.pullRequestId]
+                                                .buildNumber && (
+                                                <span style={{ opacity: 0.8 }}>
+                                                  #
+                                                  {
+                                                    prBuildStatuses[
+                                                      pr.pullRequestId
+                                                    ].buildNumber
+                                                  }
+                                                </span>
+                                              )}
+                                            </span>
+                                          </>
+                                        )}
 
-                                    {/* Approval Status */}
-                                    {pr.pullRequestId &&
-                                      prBuildStatuses[pr.pullRequestId] && (
-                                        <>
-                                          <span>•</span>
-                                          <span
-                                            style={{
-                                              display: "flex",
-                                              alignItems: "center",
-                                              gap: "4px",
-                                              padding: "2px 6px",
-                                              borderRadius: "4px",
-                                              fontSize: "10px",
-                                              fontWeight: "600",
-                                              backgroundColor:
-                                                this.getApprovalStatusColor(
+                                      {/* Approval Status */}
+                                      {pr.pullRequestId &&
+                                        prBuildStatuses[pr.pullRequestId] && (
+                                          <>
+                                            <span>•</span>
+                                            <span
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "4px",
+                                                padding: "2px 6px",
+                                                borderRadius: "4px",
+                                                fontSize: "10px",
+                                                fontWeight: "600",
+                                                backgroundColor:
+                                                  this.getApprovalStatusColor(
+                                                    prBuildStatuses[
+                                                      pr.pullRequestId
+                                                    ].approvalStatus
+                                                  ),
+                                                color: "#fff",
+                                              }}
+                                            >
+                                              <Icon
+                                                iconName={this.getApprovalStatusIcon(
                                                   prBuildStatuses[
                                                     pr.pullRequestId
                                                   ].approvalStatus
-                                                ),
-                                              color: "#fff",
-                                            }}
-                                          >
-                                            <Icon
-                                              iconName={this.getApprovalStatusIcon(
+                                                )}
+                                                style={{ fontSize: "8px" }}
+                                              />
+                                              {this.getApprovalStatusText(
                                                 prBuildStatuses[
                                                   pr.pullRequestId
                                                 ].approvalStatus
                                               )}
-                                              style={{ fontSize: "8px" }}
-                                            />
-                                            {this.getApprovalStatusText(
-                                              prBuildStatuses[pr.pullRequestId]
-                                                .approvalStatus
-                                            )}
-                                            {prBuildStatuses[pr.pullRequestId]
-                                              .reviewerCount > 0 && (
-                                              <span style={{ opacity: 0.8 }}>
-                                                (
-                                                {
-                                                  prBuildStatuses[
-                                                    pr.pullRequestId
-                                                  ].reviewerCount
-                                                }
-                                                )
-                                              </span>
-                                            )}
-                                          </span>
-                                        </>
-                                      )}
+                                              {prBuildStatuses[pr.pullRequestId]
+                                                .reviewerCount > 0 && (
+                                                <span style={{ opacity: 0.8 }}>
+                                                  (
+                                                  {
+                                                    prBuildStatuses[
+                                                      pr.pullRequestId
+                                                    ].reviewerCount
+                                                  }
+                                                  )
+                                                </span>
+                                              )}
+                                            </span>
+                                          </>
+                                        )}
 
-                                    {/* Ready to Merge Indicator */}
-                                    {pr.pullRequestId &&
-                                      prBuildStatuses[pr.pullRequestId] &&
-                                      this.isPullRequestReadyToMerge(
-                                        pr,
+                                      {/* Ready to Merge Indicator */}
+                                      {pr.pullRequestId &&
+                                        prBuildStatuses[pr.pullRequestId] &&
+                                        this.isPullRequestReadyToMerge(
+                                          pr,
+                                          prBuildStatuses[pr.pullRequestId]
+                                        ) && (
+                                          <>
+                                            <span>•</span>
+                                            <span
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "4px",
+                                                padding: "2px 6px",
+                                                borderRadius: "4px",
+                                                fontSize: "10px",
+                                                fontWeight: "600",
+                                                backgroundColor: "#107c10",
+                                                color: "#fff",
+                                              }}
+                                            >
+                                              <Icon
+                                                iconName="Completed"
+                                                style={{ fontSize: "8px" }}
+                                              />
+                                              READY TO MERGE
+                                            </span>
+                                          </>
+                                        )}
+
+                                      {/* Auto-complete indicator */}
+                                      {pr.pullRequestId &&
                                         prBuildStatuses[pr.pullRequestId]
-                                      ) && (
-                                        <>
-                                          <span>•</span>
-                                          <span
-                                            style={{
-                                              display: "flex",
-                                              alignItems: "center",
-                                              gap: "4px",
-                                              padding: "2px 6px",
-                                              borderRadius: "4px",
-                                              fontSize: "10px",
-                                              fontWeight: "600",
-                                              backgroundColor: "#107c10",
-                                              color: "#fff",
-                                            }}
-                                          >
-                                            <Icon
-                                              iconName="Completed"
-                                              style={{ fontSize: "8px" }}
-                                            />
-                                            READY TO MERGE
-                                          </span>
-                                        </>
-                                      )}
-
-                                    {/* Auto-complete indicator */}
-                                    {pr.pullRequestId &&
-                                      prBuildStatuses[pr.pullRequestId]
-                                        ?.hasAutoComplete && (
-                                        <>
-                                          <span>•</span>
-                                          <span
-                                            style={{
-                                              display: "flex",
-                                              alignItems: "center",
-                                              gap: "4px",
-                                              padding: "2px 6px",
-                                              borderRadius: "4px",
-                                              fontSize: "10px",
-                                              fontWeight: "600",
-                                              backgroundColor: "#0078d4",
-                                              color: "#fff",
-                                            }}
-                                          >
-                                            <Icon
-                                              iconName="AutoFillTemplate"
-                                              style={{ fontSize: "8px" }}
-                                            />
-                                            AUTO-COMPLETE
-                                          </span>
-                                        </>
-                                      )}
+                                          ?.hasAutoComplete && (
+                                          <>
+                                            <span>•</span>
+                                            <span
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "4px",
+                                                padding: "2px 6px",
+                                                borderRadius: "4px",
+                                                fontSize: "10px",
+                                                fontWeight: "600",
+                                                backgroundColor: "#0078d4",
+                                                color: "#fff",
+                                              }}
+                                            >
+                                              <Icon
+                                                iconName="AutoFillTemplate"
+                                                style={{ fontSize: "8px" }}
+                                              />
+                                              AUTO-COMPLETE
+                                            </span>
+                                          </>
+                                        )}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
 
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "8px",
-                                }}
-                              >
-                                <Button
-                                  text="Update from master"
-                                  iconProps={{ iconName: "BranchPullRequest" }}
-                                  onClick={(event) => {
-                                    event.stopPropagation(); // Prevent navigation to PR
-                                    const repoName = pr.repository?.name;
-                                    if (repoName) {
-                                      const repo = repos.find(
-                                        (r) => r.name === repoName
-                                      );
-                                      if (repo) {
-                                        this.createUpdatePRFromMaster(
-                                          repo,
-                                          pr.sourceRefName
-                                        );
-                                      }
-                                    }
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px",
                                   }}
-                                  primary={false}
-                                />
-                                <Icon
-                                  iconName="ChevronRight"
-                                  style={{ color: "#666", fontSize: "12px" }}
-                                />
+                                >
+                                  {/* Show Publish Draft button for draft PRs */}
+                                  {pr.isDraft ? (
+                                    <Button
+                                      text="Publish Draft"
+                                      iconProps={{ iconName: "PublishContent" }}
+                                      onClick={(event) => {
+                                        event.stopPropagation(); // Prevent navigation to PR
+                                        this.publishDraftPR(pr);
+                                      }}
+                                      primary={true}
+                                      tooltipProps={{
+                                        text: `Publish "${pr.title}" to make it ready for review`,
+                                      }}
+                                    />
+                                  ) : (
+                                    <Button
+                                      text="Update from master"
+                                      iconProps={{
+                                        iconName: "BranchPullRequest",
+                                      }}
+                                      onClick={(event) => {
+                                        event.stopPropagation(); // Prevent navigation to PR
+                                        const repoName = pr.repository?.name;
+                                        if (repoName) {
+                                          const repo = repos.find(
+                                            (r) => r.name === repoName
+                                          );
+                                          if (repo) {
+                                            this.createUpdatePRFromMaster(
+                                              repo,
+                                              pr.sourceRefName
+                                            );
+                                          }
+                                        }
+                                      }}
+                                      primary={false}
+                                    />
+                                  )}
+                                  <Icon
+                                    iconName="ChevronRight"
+                                    style={{ color: "#666", fontSize: "12px" }}
+                                  />
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            ))}
+                        </div>
                       </div>
-                    </div>
                     );
                   })}
                 </div>
