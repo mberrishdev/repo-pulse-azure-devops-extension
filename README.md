@@ -1,26 +1,34 @@
 # Repo Pulse - Azure DevOps Extension
 
-A modern Azure DevOps extension built with React and TypeScript that provides enhanced repository and pull request management capabilities. Designed to work seamlessly with both Azure DevOps Services (cloud) and Azure DevOps Server (on-premises).
+A comprehensive Azure DevOps extension built with React and TypeScript that provides enhanced repository management, pull request workflow automation, and CI/CD pipeline control. Designed to work seamlessly with both Azure DevOps Services (cloud) and Azure DevOps Server (on-premises).
 
-## Features
+## ✨ Features
 
-### Repository Management
-- **Repository Overview**: View all repositories in your Azure DevOps project with detailed information
-- **Quick Navigation**: Click any repository to open it directly in a new browser tab
-- **Repository Details**: See default branch, repository size, and visual status indicators
-- **Smart Project Detection**: Automatically detects project context from various Azure DevOps environments
+### 🏗️ Repository Management
+- **Repository Overview**: View all repositories with real-time build status and detailed information
+- **Favorite Repositories**: ⭐ Star repositories to keep them at the top of the list
+- **Pipeline Triggering**: 🚀 Trigger CI/CD pipelines individually or in bulk
+- **Build Status Monitoring**: Live build status with clickable links to build details
+- **Smart Selection**: Checkbox-based selection for batch operations
+- **Quick Navigation**: Click repository names to open them directly in Azure DevOps
 
-### Pull Request Management
-- **Grouped Display**: Pull requests are automatically grouped by title for better organization
-- **Visual Status Indicators**: 
-  - Draft/Active status badges with color coding
-  - Build status indicators (Success/Failed/Running) when available
-  - Status circles for quick visual reference
-- **"Update from Master"**: Create pull requests to update target branches from master with one click
-- **Direct Navigation**: Click any pull request to open it in Azure DevOps
+### 📋 Pull Request Management
+- **Enhanced PR Display**: Pull requests grouped by title with comprehensive status information
+- **Build Status Integration**: Real-time build status for each PR's source branch
+- **Approval Status Tracking**: Visual indicators for review status and approval progress
+- **Draft PR Support**: Manage and publish draft pull requests with one-click publishing
+- **Ready-to-Merge Detection**: Automatic detection of PRs ready for merge
+- **Batch Draft Publishing**: Publish all draft PRs in a group simultaneously
+- **Auto-Complete Indicators**: Visual badges for PRs with auto-complete enabled
 
-### User Experience
-- **Modern Typography**: Uses Microsoft Fluent Design System fonts (Segoe UI) for consistency
+### 🚀 Pipeline & Build Features
+- **Individual Pipeline Triggers**: Start builds for specific repositories
+- **Batch Pipeline Execution**: Select multiple repositories and trigger all their pipelines
+- **Real-time Status Updates**: Build status updates immediately when triggered
+- **Build History Access**: Click build status to view detailed build information
+- **Pipeline Detection**: Automatically finds and maps CI/CD pipelines to repositories
+
+### 🎯 User Experience
 - **Tabbed Interface**: Clean separation between Repositories and Pull Requests views
 - **Native Azure DevOps UI**: Built with Azure DevOps UI components for seamless integration
 - **Toast Notifications**: Success and error messages using Azure DevOps native notification system
@@ -76,10 +84,11 @@ The extension requires the following scopes in your `vss-extension.json`:
 
 ```json
 "scopes": [
-  "vso.code_full",     // Git repository read/write access
-  "vso.project",       // Project information access
-  "vso.identity",      // User identity access
-  "vso.graph"          // Organization graph access
+  "vso.code",          // Git repository read access
+  "vso.code_write",    // Git repository write access (for publishing draft PRs)
+  "vso.build",         // Build definitions and history read access
+  "vso.build_execute", // Build pipeline triggering permissions
+  "vso.project"        // Project information access
 ]
 ```
 
@@ -89,26 +98,43 @@ The extension requires the following scopes in your `vss-extension.json`:
 - **Azure DevOps Server 2020+**: Uses API version 7.1
 - The extension automatically detects and adapts to your environment
 
-## Usage
+## 📖 Usage
 
-### Viewing Repositories
-1. Navigate to your Azure DevOps project
-2. Go to **Repos** → **Repo Pulse**
-3. View all repositories with their details
-4. Click any repository to open it in a new tab
+### 🏗️ Repository Management
+1. **Navigate to Extension**: Go to **Repos** → **Repo Pulse** in your Azure DevOps project
+2. **View Repositories**: See all repositories with build status and pipeline information
+3. **Manage Favorites**: Click the ⭐ star icon to add/remove repositories from favorites
+4. **Trigger Pipelines**: 
+   - **Individual**: Click "Trigger" button on any repository
+   - **Batch**: Select multiple repositories and click "Trigger Selected"
+5. **Monitor Builds**: Click build status badges to view detailed build information
 
-### Managing Pull Requests
-1. Switch to the **Pull Requests** tab
-2. View pull requests grouped by title
-3. See status indicators for drafts and build results
-4. Click "Update from Master" to create update pull requests
-5. Click any pull request to open it in a new tab
+### 📋 Pull Request Workflow
+1. **Switch to PR Tab**: Click "Pull Requests" tab (bookmarkable with `?tab=pullrequests`)
+2. **View Grouped PRs**: See pull requests organized by title with status indicators
+3. **Monitor Status**: View build status, approval status, and merge readiness
+4. **Manage Drafts**: 
+   - **Individual**: Click "Publish Draft" on draft PRs
+   - **Group**: Click "Publish X Drafts" to publish all drafts in a group
+5. **Create Update PRs**: Click "Update from Master" to sync branches
 
-### Creating Update Pull Requests
-- Click "Update from master" on any pull request group
-- Automatically creates a PR from `master` to the target branch
-- Opens the new pull request in a new tab
-- Shows success/error notifications
+### 🚀 Pipeline Operations
+- **Quick Trigger**: Start CI/CD pipelines with one click
+- **Batch Operations**: Select multiple repositories and trigger all pipelines
+- **Real-time Updates**: Build status updates immediately when triggered
+- **Build Monitoring**: Click build badges to view detailed build logs
+
+### ⭐ Favorites Management
+- **Add Favorites**: Click the star icon next to any repository name
+- **Automatic Sorting**: Favorite repositories appear at the top of the list
+- **Persistent Storage**: Favorites are saved per project and persist between sessions
+- **Visual Indicators**: Gold stars show which repositories are favorited
+
+### 📝 Draft PR Publishing
+- **Individual Publishing**: Convert draft PRs to active status with "Publish Draft" button
+- **Group Publishing**: Publish all drafts in a specific group with one click
+- **No Confirmation**: Instant publishing without confirmation dialogs
+- **Status Tracking**: See approval status, build status, and merge readiness
 
 ## Development
 
@@ -143,19 +169,23 @@ repo-pulse-azure-devops-extension/
 
 #### Home.tsx
 Main React component that provides:
-- Repository listing and management with visual indicators
-- Pull request grouping and display by title
-- "Update from master" functionality for automated PR creation
-- Smart project detection with URL parsing fallback
-- Azure DevOps SDK integration with error handling
-- Modern typography using Fluent Design System
+- **Repository Management**: Listing, favorites, build status monitoring
+- **Pipeline Control**: Individual and batch CI/CD pipeline triggering
+- **Pull Request Workflow**: Grouping, status tracking, draft publishing
+- **Build Integration**: Real-time build status and history access
+- **Approval Tracking**: Reviewer analysis and merge readiness detection
+- **URL State Management**: Bookmarkable tabs and browser navigation support
+- **Smart Project Detection**: URL parsing fallback with multiple pattern support
+- **Azure DevOps SDK Integration**: Comprehensive error handling and permissions
 
 #### API Integration
-- Uses `azure-devops-extension-api` v1.158.0 for compatibility
-- Implements `GitRestClient` for repository and pull request operations
-- Handles authentication through Azure DevOps Extension SDK
-- Supports both project ID and project name for API calls
-- Automatic base URL detection for cloud and on-premises instances
+- **Git Operations**: `GitRestClient` for repositories, pull requests, and branch management
+- **Build Operations**: `BuildRestClient` for pipeline triggering and build monitoring
+- **Multi-Client Architecture**: Separate clients for different Azure DevOps services
+- **Authentication**: Azure DevOps Extension SDK with automatic token management
+- **Project Context**: Supports both project ID and project name for API calls
+- **Base URL Detection**: Automatic detection for cloud and on-premises instances
+- **Permissions**: Comprehensive scope management for read/write operations
 
 ### Development Commands
 
@@ -176,24 +206,62 @@ npm run package
 npm run publish
 ```
 
-## API Usage
+## 🔧 API Usage
 
 ### Repository Operations
 ```typescript
-// Initialize Git client
+// Initialize Git and Build clients
 const gitClient = getClient(GitRestClient);
+const buildClient = getClient(BuildRestClient);
 
 // Get repositories by project (supports both ID and name)
 const repos = await gitClient.getRepositories(projectInfo.id || projectInfo.name);
+
+// Load build statuses for repositories
+const builds = await buildClient.getBuilds(projectName, [definitionId], undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 1);
 ```
 
 ### Pull Request Operations
 ```typescript
-// Get active pull requests by project
+// Get active and draft pull requests by project
 const searchCriteria = { status: PullRequestStatus.Active };
 const pullRequests = await gitClient.getPullRequestsByProject(
   projectInfo.id || projectInfo.name,
   searchCriteria
+);
+
+// Get detailed PR information with reviewers
+const detailedPR = await gitClient.getPullRequestById(
+  pullRequestId,
+  repositoryId
+);
+```
+
+### Pipeline Triggering
+```typescript
+// Trigger a build pipeline
+const buildToQueue = {
+  definition: { id: definitionId },
+  sourceBranch: "refs/heads/master"
+};
+
+const build = await buildClient.queueBuild(
+  buildToQueue as any,
+  projectInfo.id || projectInfo.name
+);
+```
+
+### Publishing Draft PRs
+```typescript
+// Convert draft PR to active status
+const updatedPR: Partial<GitPullRequest> = {
+  isDraft: false
+};
+
+await gitClient.updatePullRequest(
+  updatedPR as GitPullRequest,
+  repositoryId,
+  pullRequestId
 );
 ```
 
@@ -212,6 +280,20 @@ const pullRequest = await gitClient.createPullRequest(
   prData as GitPullRequest,
   repositoryId
 );
+```
+
+### Favorites Management
+```typescript
+// Save favorites to localStorage (project-specific)
+const storageKey = `repo-pulse-favorites-${projectName}`;
+localStorage.setItem(storageKey, JSON.stringify(Array.from(favoriteRepoIds)));
+
+// Load favorites on startup
+const storedFavorites = localStorage.getItem(storageKey);
+if (storedFavorites) {
+  const favoriteIds = JSON.parse(storedFavorites) as string[];
+  this.setState({ favoriteRepoIds: new Set(favoriteIds) });
+}
 ```
 
 ### Project Context Detection
@@ -264,6 +346,29 @@ private getProjectInfo(): { id?: string; name?: string } | null {
    - Verify user has appropriate Git repository permissions
    - Check that required scopes are granted in extension manifest
    - Ensure user is member of the Azure DevOps project
+   - For pipeline triggering: Verify `vso.build_execute` scope is granted
+   - For draft publishing: Verify `vso.code_write` scope is granted
+
+6. **Pipeline triggering issues**
+   - Check if build definitions exist for the repository
+   - Verify user has "Queue builds" permission in Azure DevOps
+   - Ensure the source branch (default: master) exists in the repository
+   - Check browser console for detailed error messages
+
+7. **Draft publishing failures**
+   - Verify user has "Contribute to pull requests" permission
+   - Check if the PR is actually in draft status
+   - Ensure the PR is not already completed or abandoned
+
+8. **Approval status showing as "Unknown"**
+   - Check browser console for detailed reviewer analysis logs
+   - Verify that reviewers are properly assigned to the pull request
+   - Some PRs may not have reviewers assigned (shows as "Pending")
+
+9. **Favorites not persisting**
+   - Check if localStorage is enabled in the browser
+   - Favorites are stored per project - switching projects will show different favorites
+   - Clear browser cache if favorites appear corrupted
 
 ### Azure DevOps Server Compatibility
 - **Server 2019**: Supported with API version 3.0
