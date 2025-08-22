@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.57";
+const EXTENSION_VERSION = "0.0.58";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -599,30 +599,15 @@ export class HomePage extends React.Component<object, HomePageState> {
         throw new Error("Git client not initialized");
       }
 
-      // Get both active and draft pull requests
       const searchCriteria = {
         status: PullRequestStatus.Active, // This includes both active and draft PRs
       };
 
-      // Try to get pull requests with more detailed information
       const allPullRequests = await this.gitClient.getPullRequestsByProject(
         projectInfo.id || projectInfo.name,
         searchCriteria as any
       );
 
-      console.log(
-        `Loaded ${allPullRequests.length} pull requests:`,
-        allPullRequests.map((pr) => ({
-          id: pr.pullRequestId,
-          title: pr.title,
-          status: pr.status,
-          isDraft: pr.isDraft,
-          hasReviewers: !!(pr.reviewers && pr.reviewers.length > 0),
-          reviewerCount: pr.reviewers?.length || 0,
-          autoCompleteSetBy: !!pr.autoCompleteSetBy,
-        }))
-      );
-      // Group pull requests by title
       const groupedPullRequests = this.groupPullRequests(allPullRequests);
 
       this.setState({
@@ -698,25 +683,11 @@ export class HomePage extends React.Component<object, HomePageState> {
         // If reviewers are not populated, try to get detailed PR information
         let detailedPR = pr;
         if (!pr.reviewers || pr.reviewers.length === 0) {
-          console.log(
-            `PR ${pr.pullRequestId} - No reviewers in initial data, fetching detailed PR info`
-          );
           try {
             detailedPR = await this.gitClient!.getPullRequestById(
               pr.pullRequestId,
               pr.repository?.id || ""
             );
-            console.log(`PR ${pr.pullRequestId} - Detailed PR data:`, {
-              hasReviewers: !!(
-                detailedPR.reviewers && detailedPR.reviewers.length > 0
-              ),
-              reviewerCount: detailedPR.reviewers?.length || 0,
-              reviewers: detailedPR.reviewers?.map((r) => ({
-                displayName: r.displayName,
-                vote: r.vote,
-                isRequired: r.isRequired,
-              })),
-            });
           } catch (detailError) {
             console.warn(
               `Failed to get detailed PR info for ${pr.pullRequestId}:`,
@@ -765,23 +736,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         let reviewerCount = 0;
         let requiredReviewerCount = 0;
 
-        // Debug logging for approval status
-        console.log(
-          `DEBUG - PR ${pr.pullRequestId} - Analyzing approval status:`,
-          {
-            hasReviewers: !!(
-              detailedPR.reviewers && detailedPR.reviewers.length > 0
-            ),
-            reviewersLength: detailedPR.reviewers?.length || 0,
-            reviewers: detailedPR.reviewers?.map((r) => ({
-              displayName: r.displayName,
-              vote: r.vote,
-              isRequired: r.isRequired,
-              id: r.id,
-            })),
-          }
-        );
-
         if (detailedPR.reviewers && detailedPR.reviewers.length > 0) {
           const approvedReviewers = detailedPR.reviewers.filter(
             (r) => r.vote === 10
@@ -800,18 +754,6 @@ export class HomePage extends React.Component<object, HomePageState> {
           requiredReviewerCount = detailedPR.reviewers.filter(
             (r) => r.isRequired
           ).length;
-
-          console.log(`DEBUG - PR ${pr.pullRequestId} - Reviewer analysis:`, {
-            total: reviewerCount,
-            required: requiredReviewerCount,
-            approved: approvedReviewers.length,
-            rejected: rejectedReviewers.length,
-            waitingForAuthor: waitingReviewers.length,
-            noVote: noVoteReviewers.length,
-            approvedReviewers: approvedReviewers.map((r) => r.displayName),
-            rejectedReviewers: rejectedReviewers.map((r) => r.displayName),
-            waitingReviewers: waitingReviewers.map((r) => r.displayName),
-          });
 
           if (rejectedReviewers.length > 0) {
             approvalStatus = "rejected";
@@ -842,15 +784,7 @@ export class HomePage extends React.Component<object, HomePageState> {
           } else {
             approvalStatus = "pending";
           }
-
-          console.log(
-            `DEBUG - PR ${pr.pullRequestId} - Final approval status: ${approvalStatus}`
-          );
         } else {
-          console.log(
-            `DEBUG - PR ${pr.pullRequestId} - No reviewers found, checking PR status`
-          );
-
           if (pr.status === 1) {
             // Active
             approvalStatus = "pending";
@@ -1144,7 +1078,6 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
 
     const buildUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_build/results?buildId=${buildId}`;
-    console.log(`Opening build ${buildId} at: ${buildUrl}`);
     this.navigateToUrl(buildUrl);
   };
 
@@ -1245,7 +1178,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       messagesService.addToast(toast);
     } catch (error) {
       console.error("Failed to show toast:", error);
-      console.log(`${type.toUpperCase()}: ${message}`);
     }
   };
 
