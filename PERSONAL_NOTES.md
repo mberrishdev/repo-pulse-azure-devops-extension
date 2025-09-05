@@ -3,7 +3,7 @@
 ## 👤 Publisher Information
 
 - **Publisher ID**: `mberrishdev`
-- **Email**: *[Add your email here]*
+- **Email**: mikheil.berishvili12@gmail.com
 - **Marketplace Publisher Dashboard**: https://marketplace.visualstudio.com/manage/publishers/mberrishdev
 
 ## 🔗 Important Links

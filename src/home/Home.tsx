@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.59";
+const EXTENSION_VERSION = "0.0.61";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -54,6 +54,7 @@ interface RepositoryBuildStatus {
   definitionId?: number;
   definitionName?: string;
   pipelineNames?: string[];
+  pipelineUrls?: string[]; // Array of pipeline URLs associated with this repository
 }
 
 interface PullRequestBuildStatus {
@@ -449,26 +450,34 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       const definitionsByRepo = new Map<string, any[]>();
 
-      for (const repo of repos) {
-        const potentialDefinitions = allDefinitions.filter((def) => {
-          const isCiLike =
-            def.name?.toLowerCase().includes("ci") ||
-            def.name?.toLowerCase().includes("pr") ||
-            def.name?.toLowerCase().includes("validation") ||
-            def.name?.toLowerCase().includes("build") ||
-            def.name?.toLowerCase().includes(repo.name?.toLowerCase() || "");
+      // First, get all definitions that might be related to any repository
+      const allPotentialDefinitions = allDefinitions.filter((def) => {
+        const name = def.name?.toLowerCase() || "";
+        return (
+          name.includes("ci") ||
+          name.includes("pr") ||
+          name.includes("validation") ||
+          name.includes("build") ||
+          name.includes("azure-pipeline") ||
+          name.includes("pr-validation")
+        );
+      });
 
-          return isCiLike;
-        });
+      // Group definitions by repository
+      for (const repo of repos) {
+        if (!repo.id) continue;
 
         const repoDefinitions = [];
-        for (const def of potentialDefinitions) {
+        
+        // Check both the global filtered definitions and try to get definitions specific to this repo
+        for (const def of allPotentialDefinitions) {
           try {
             const fullDefinition = await this.buildClient!.getDefinition(
               projectName,
               def.id
             );
 
+            // Check if this definition belongs to the current repository
             if (
               fullDefinition.repository?.id === repo.id ||
               fullDefinition.repository?.name === repo.name
@@ -480,8 +489,48 @@ export class HomePage extends React.Component<object, HomePageState> {
           }
         }
 
+        // Also try to get definitions directly for this repository
+        try {
+          const directRepoDefinitions = await this.buildClient.getDefinitions(
+            projectName,
+            undefined, // name
+            repo.id, // repositoryId - specific to this repo
+            undefined, // repositoryType
+            undefined, // queryOrder
+            undefined, // top
+            undefined, // continuationToken
+            undefined, // minMetricsTime
+            undefined, // definitionIds
+            undefined, // path
+            undefined, // builtAfter
+            undefined, // notBuiltAfter
+            true, // includeAllProperties
+            true // includeLatestBuilds
+          );
+
+          // Add any additional definitions found directly for this repo
+          for (const def of directRepoDefinitions) {
+            const name = def.name?.toLowerCase() || "";
+            if (
+              name.includes("ci") ||
+              name.includes("pr") ||
+              name.includes("validation") ||
+              name.includes("build") ||
+              name.includes("azure-pipeline") ||
+              name.includes("pr-validation")
+            ) {
+              // Check if we already have this definition
+              if (!repoDefinitions.some(existing => existing.id === def.id)) {
+                repoDefinitions.push(def);
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to load direct definitions for repo ${repo.name}:`, error);
+        }
+
         if (repoDefinitions.length > 0) {
-          definitionsByRepo.set(repo.id!, repoDefinitions);
+          definitionsByRepo.set(repo.id, repoDefinitions);
         }
       }
 
@@ -499,16 +548,32 @@ export class HomePage extends React.Component<object, HomePageState> {
                 status: BuildStatus.None,
                 isLoading: false,
                 pipelineNames: [],
+                pipelineUrls: [],
               },
             },
           }));
           return;
         }
 
-        // Extract all pipeline names for this repository
+        // Extract all pipeline names and URLs for this repository
         const pipelineNames = definitions.map(def => def.name).filter(name => name);
+        const pipelineUrls = definitions.map(def => {
+          if (def.id && def.name) {
+            return `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`;
+          }
+          return null;
+        }).filter((url): url is string => url !== null);
 
-        const prValidationDef = definitions[0];
+        // Find the most relevant definition (prefer pr-validation or azure-pipeline)
+        let prValidationDef = definitions.find(def => 
+          def.name?.toLowerCase().includes("pr-validation") ||
+          def.name?.toLowerCase().includes("azure-pipeline")
+        );
+        
+        // If no specific definition found, use the first one
+        if (!prValidationDef) {
+          prValidationDef = definitions[0];
+        }
 
         if (!prValidationDef?.id) {
           this.setState((prevState) => ({
@@ -518,6 +583,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                 status: BuildStatus.None,
                 isLoading: false,
                 pipelineNames: pipelineNames,
+                pipelineUrls: pipelineUrls,
               },
             },
           }));
@@ -554,6 +620,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               definitionId: prValidationDef.id,
               definitionName: prValidationDef.name,
               pipelineNames: pipelineNames,
+              pipelineUrls: pipelineUrls,
             };
 
             this.setState((prevState) => ({
@@ -571,6 +638,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                   status: BuildStatus.None,
                   isLoading: false,
                   pipelineNames: pipelineNames,
+                  pipelineUrls: pipelineUrls,
                 },
               },
             }));
@@ -584,6 +652,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                 status: BuildStatus.None,
                 isLoading: false,
                 pipelineNames: pipelineNames,
+                pipelineUrls: pipelineUrls,
               },
             },
           }));
@@ -2056,26 +2125,55 @@ export class HomePage extends React.Component<object, HomePageState> {
                               {repo.id && buildStatuses[repo.id]?.pipelineNames && buildStatuses[repo.id].pipelineNames!.length > 0 && (
                                 <>
                                   <span>•</span>
-                                  <span
+                                  <div
                                     style={{
                                       display: "flex",
                                       alignItems: "center",
                                       gap: "4px",
-                                      color: "#0078d4",
                                       fontSize: "11px",
                                     }}
-                                    title={`Pipelines: ${buildStatuses[repo.id].pipelineNames!.join(", ")}`}
                                   >
                                     <Icon
                                       iconName="BuildDefinition"
-                                      style={{ fontSize: "10px" }}
+                                      style={{ fontSize: "10px", color: "#0078d4" }}
                                     />
-                                    <span style={{ fontWeight: "500" }}>
-                                      {buildStatuses[repo.id].pipelineNames!.length === 1
-                                        ? buildStatuses[repo.id].pipelineNames![0]
-                                        : `${buildStatuses[repo.id].pipelineNames!.length} pipelines`}
-                                    </span>
-                                  </span>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                      {buildStatuses[repo.id].pipelineNames!.map((name, index) => {
+                                        const url = buildStatuses[repo.id].pipelineUrls?.[index];
+                                        return (
+                                          <span
+                                            key={index}
+                                            style={{
+                                              color: url ? "#0078d4" : "#666",
+                                              fontWeight: "500",
+                                              cursor: url ? "pointer" : "default",
+                                              textDecoration: url ? "underline" : "none",
+                                              transition: "color 0.2s ease",
+                                            }}
+                                            onClick={(e) => {
+                                              if (url) {
+                                                e.stopPropagation();
+                                                this.navigateToUrl(url);
+                                              }
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              if (url) {
+                                                e.currentTarget.style.color = "#106ebe";
+                                              }
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              if (url) {
+                                                e.currentTarget.style.color = "#0078d4";
+                                              }
+                                            }}
+                                            title={url ? `Click to open ${name} pipeline` : name}
+                                          >
+                                            {name}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
                                 </>
                               )}
                             </div>
