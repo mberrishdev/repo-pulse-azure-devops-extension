@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.61";
+const EXTENSION_VERSION = "0.0.64";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -431,71 +431,18 @@ export class HomePage extends React.Component<object, HomePageState> {
         return;
       }
 
-      const allDefinitions = await this.buildClient.getDefinitions(
-        projectName,
-        undefined, // name
-        undefined, // repositoryId
-        undefined, // repositoryType
-        undefined, // queryOrder
-        undefined, // top
-        undefined, // continuationToken
-        undefined, // minMetricsTime
-        undefined, // definitionIds
-        undefined, // path
-        undefined, // builtAfter
-        undefined, // notBuiltAfter
-        true, // includeAllProperties - this might give us repository info
-        true // includeLatestBuilds
-      );
-
       const definitionsByRepo = new Map<string, any[]>();
 
-      // First, get all definitions that might be related to any repository
-      const allPotentialDefinitions = allDefinitions.filter((def) => {
-        const name = def.name?.toLowerCase() || "";
-        return (
-          name.includes("ci") ||
-          name.includes("pr") ||
-          name.includes("validation") ||
-          name.includes("build") ||
-          name.includes("azure-pipeline") ||
-          name.includes("pr-validation")
-        );
-      });
-
-      // Group definitions by repository
+      // Get definitions for each repository individually since repository ID is mandatory
       for (const repo of repos) {
         if (!repo.id) continue;
 
-        const repoDefinitions = [];
-        
-        // Check both the global filtered definitions and try to get definitions specific to this repo
-        for (const def of allPotentialDefinitions) {
-          try {
-            const fullDefinition = await this.buildClient!.getDefinition(
-              projectName,
-              def.id
-            );
-
-            // Check if this definition belongs to the current repository
-            if (
-              fullDefinition.repository?.id === repo.id ||
-              fullDefinition.repository?.name === repo.name
-            ) {
-              repoDefinitions.push(fullDefinition);
-            }
-          } catch (error) {
-            // Silently continue if we can't get the full definition
-          }
-        }
-
-        // Also try to get definitions directly for this repository
         try {
-          const directRepoDefinitions = await this.buildClient.getDefinitions(
+          const repoDefinitions = await this.buildClient.getDefinitions(
             projectName,
             undefined, // name
-            repo.id, // repositoryId - specific to this repo
-            undefined, // repositoryType
+            repo.id, // repositoryId - use the loaded repository ID
+            "TfsGit", // repositoryType - specify Git repository type
             undefined, // queryOrder
             undefined, // top
             undefined, // continuationToken
@@ -508,29 +455,13 @@ export class HomePage extends React.Component<object, HomePageState> {
             true // includeLatestBuilds
           );
 
-          // Add any additional definitions found directly for this repo
-          for (const def of directRepoDefinitions) {
-            const name = def.name?.toLowerCase() || "";
-            if (
-              name.includes("ci") ||
-              name.includes("pr") ||
-              name.includes("validation") ||
-              name.includes("build") ||
-              name.includes("azure-pipeline") ||
-              name.includes("pr-validation")
-            ) {
-              // Check if we already have this definition
-              if (!repoDefinitions.some(existing => existing.id === def.id)) {
-                repoDefinitions.push(def);
-              }
-            }
+          console.log(`TEST-definitions for ${repo.name}:`, repoDefinitions);
+
+          if (repoDefinitions.length > 0) {
+            definitionsByRepo.set(repo.id, repoDefinitions);
           }
         } catch (error) {
-          console.warn(`Failed to load direct definitions for repo ${repo.name}:`, error);
-        }
-
-        if (repoDefinitions.length > 0) {
-          definitionsByRepo.set(repo.id, repoDefinitions);
+          console.warn(`Failed to load definitions for repo ${repo.name}:`, error);
         }
       }
 
