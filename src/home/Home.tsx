@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.65";
+const EXTENSION_VERSION = "0.0.68";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -67,6 +67,7 @@ interface PipelineDetail {
   lastBuildTime?: Date;
   buildNumber?: string;
   buildId?: number;
+  isBuildPipeline?: boolean; // Indicates if this is a build pipeline
 }
 
 interface PullRequestBuildStatus {
@@ -563,16 +564,8 @@ export class HomePage extends React.Component<object, HomePageState> {
           return new Date(b.lastBuildTime).getTime() - new Date(a.lastBuildTime).getTime();
         });
 
-        // Find the most relevant definition (prefer pr-validation or azure-pipeline)
-        let prValidationDef = definitions.find(def => 
-          def.name?.toLowerCase().includes("pr-validation") ||
-          def.name?.toLowerCase().includes("azure-pipeline")
-        );
-        
-        // If no specific definition found, use the first one
-        if (!prValidationDef) {
-          prValidationDef = definitions[0];
-        }
+        // Use the first definition for build status (or any definition)
+        const prValidationDef = definitions[0];
 
         if (!prValidationDef?.id) {
           this.setState((prevState) => ({
@@ -621,6 +614,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               definitionName: prValidationDef.name,
               pipelineNames: pipelineNames,
               pipelineUrls: pipelineUrls,
+              pipelineDetails: pipelineDetails,
             };
 
             this.setState((prevState) => ({
@@ -639,6 +633,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                   isLoading: false,
                   pipelineNames: pipelineNames,
                   pipelineUrls: pipelineUrls,
+                  pipelineDetails: pipelineDetails,
                 },
               },
             }));
@@ -1017,6 +1012,43 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
 
     return "No builds";
+  };
+
+  private getTimeAgo = (date: Date): string => {
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) {
+      return "Just now";
+    }
+    
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    if (diffInMinutes < 60) {
+      return `${diffInMinutes}m ago`;
+    }
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) {
+      return `${diffInHours}h ago`;
+    }
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) {
+      return `${diffInDays}d ago`;
+    }
+    
+    const diffInWeeks = Math.floor(diffInDays / 7);
+    if (diffInWeeks < 4) {
+      return `${diffInWeeks}w ago`;
+    }
+    
+    const diffInMonths = Math.floor(diffInDays / 30);
+    if (diffInMonths < 12) {
+      return `${diffInMonths}mo ago`;
+    }
+    
+    const diffInYears = Math.floor(diffInDays / 365);
+    return `${diffInYears}y ago`;
   };
 
   private getBuildStatusIcon = (
@@ -2175,12 +2207,13 @@ export class HomePage extends React.Component<object, HomePageState> {
                           <div
                             style={{
                               marginLeft: "40px",
-                              marginTop: "8px",
-                              marginBottom: "8px",
-                              backgroundColor: "#f8f9fa",
-                              border: "1px solid #e1e1e1",
-                              borderRadius: "4px",
-                              padding: "12px 16px",
+                              marginTop: "12px",
+                              marginBottom: "12px",
+                              backgroundColor: "#fafbfc",
+                              border: "1px solid #d0d7de",
+                              borderRadius: "6px",
+                              padding: "16px",
+                              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
                             }}
                           >
                             <div
@@ -2188,18 +2221,21 @@ export class HomePage extends React.Component<object, HomePageState> {
                                 display: "flex",
                                 alignItems: "center",
                                 gap: "8px",
-                                marginBottom: "8px",
+                                marginBottom: "12px",
+                                paddingBottom: "8px",
+                                borderBottom: "1px solid #e1e4e8",
                               }}
                             >
                               <Icon
                                 iconName="BuildDefinition"
-                                style={{ fontSize: "14px", color: "#0078d4" }}
+                                style={{ fontSize: "16px", color: "#0078d4" }}
                               />
                               <span
                                 className="body-small"
                                 style={{
                                   fontWeight: "600",
-                                  color: "#323130",
+                                  color: "#24292f",
+                                  fontSize: "13px",
                                 }}
                               >
                                 Pipelines ({buildStatuses[repo.id].pipelineDetails!.length})
@@ -2209,105 +2245,144 @@ export class HomePage extends React.Component<object, HomePageState> {
                               style={{
                                 display: "flex",
                                 flexDirection: "column",
-                                gap: "6px",
+                                gap: "8px",
                               }}
                             >
                               {buildStatuses[repo.id].pipelineDetails!.map((pipeline, index) => {
+                                const timeAgo = pipeline.lastBuildTime 
+                                  ? this.getTimeAgo(new Date(pipeline.lastBuildTime))
+                                  : "Never";
+                                
                                 return (
                                   <div
                                     key={index}
                                     style={{
                                       display: "flex",
                                       alignItems: "center",
-                                      gap: "8px",
-                                      padding: "8px 12px",
+                                      gap: "12px",
+                                      padding: "12px 16px",
                                       backgroundColor: "white",
-                                      borderRadius: "3px",
-                                      border: "1px solid #e1e1e1",
-                                      transition: "background-color 0.2s ease",
+                                      borderRadius: "6px",
+                                      border: "1px solid #d0d7de",
+                                      transition: "all 0.2s ease",
+                                      cursor: "pointer",
                                     }}
                                     onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = "#f0f8ff";
+                                      e.currentTarget.style.backgroundColor = "#f6f8fa";
+                                      e.currentTarget.style.borderColor = "#0078d4";
+                                      e.currentTarget.style.boxShadow = "0 2px 4px rgba(0, 120, 212, 0.1)";
                                     }}
                                     onMouseLeave={(e) => {
                                       e.currentTarget.style.backgroundColor = "white";
+                                      e.currentTarget.style.borderColor = "#d0d7de";
+                                      e.currentTarget.style.boxShadow = "none";
                                     }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      this.navigateToUrl(pipeline.url);
+                                    }}
+                                    title={`Click to open ${pipeline.name} pipeline`}
                                   >
                                     {/* Build Status Icon */}
-                                    <Icon
-                                      iconName={this.getBuildStatusIcon(pipeline.status, pipeline.result)}
-                                      style={{ 
-                                        fontSize: "12px", 
-                                        color: this.getBuildStatusColor(pipeline.status, pipeline.result) 
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        width: "24px",
+                                        height: "24px",
+                                        borderRadius: "50%",
+                                        backgroundColor: this.getBuildStatusColor(pipeline.status, pipeline.result) + "20",
                                       }}
-                                    />
+                                    >
+                                      <Icon
+                                        iconName={this.getBuildStatusIcon(pipeline.status, pipeline.result)}
+                                        style={{ 
+                                          fontSize: "14px", 
+                                          color: this.getBuildStatusColor(pipeline.status, pipeline.result) 
+                                        }}
+                                      />
+                                    </div>
                                     
-                                    {/* Pipeline Name */}
-                                    <span
+                                    {/* Pipeline Info */}
+                                    <div
                                       style={{
-                                        color: "#0078d4",
-                                        cursor: "pointer",
-                                        textDecoration: "underline",
-                                        fontSize: "12px",
-                                        fontWeight: "500",
+                                        display: "flex",
+                                        flexDirection: "column",
                                         flex: 1,
-                                      }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        this.navigateToUrl(pipeline.url);
-                                      }}
-                                      title={`Click to open ${pipeline.name} pipeline`}
-                                    >
-                                      {pipeline.name}
-                                    </span>
-
-                                    {/* Build Status Text */}
-                                    <span
-                                      style={{
-                                        fontSize: "11px",
-                                        color: this.getBuildStatusColor(pipeline.status, pipeline.result),
-                                        fontWeight: "500",
-                                        minWidth: "60px",
-                                        textAlign: "right",
+                                        gap: "2px",
                                       }}
                                     >
-                                      {this.getBuildStatusText(pipeline.status, pipeline.result)}
-                                    </span>
-
-                                    {/* Last Build Time */}
-                                    {pipeline.lastBuildTime && (
+                                      {/* Pipeline Name */}
                                       <span
                                         style={{
-                                          fontSize: "10px",
-                                          color: "#666",
-                                          minWidth: "80px",
-                                          textAlign: "right",
+                                          color: "#0078d4",
+                                          fontSize: "13px",
+                                          fontWeight: "600",
+                                          lineHeight: "1.4",
                                         }}
-                                        title={`Last build: ${new Date(pipeline.lastBuildTime).toLocaleString()}`}
                                       >
-                                        {new Date(pipeline.lastBuildTime).toLocaleDateString()}
+                                        {pipeline.name}
                                       </span>
-                                    )}
-
-                                    {/* Build Number */}
-                                    {pipeline.buildNumber && (
-                                      <span
+                                      
+                                      {/* Status and Time Row */}
+                                      <div
                                         style={{
-                                          fontSize: "10px",
-                                          color: "#666",
-                                          backgroundColor: "#f0f0f0",
-                                          padding: "2px 4px",
-                                          borderRadius: "2px",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "8px",
                                         }}
                                       >
-                                        #{pipeline.buildNumber}
-                                      </span>
-                                    )}
+                                        {/* Build Status Text */}
+                                        <span
+                                          style={{
+                                            fontSize: "11px",
+                                            color: this.getBuildStatusColor(pipeline.status, pipeline.result),
+                                            fontWeight: "500",
+                                            backgroundColor: this.getBuildStatusColor(pipeline.status, pipeline.result) + "15",
+                                            padding: "2px 6px",
+                                            borderRadius: "3px",
+                                          }}
+                                        >
+                                          {this.getBuildStatusText(pipeline.status, pipeline.result)}
+                                        </span>
+
+                                        {/* Last Build Time */}
+                                        <span
+                                          style={{
+                                            fontSize: "11px",
+                                            color: "#656d76",
+                                          }}
+                                        >
+                                          {timeAgo}
+                                        </span>
+
+                                        {/* Build Number */}
+                                        {pipeline.buildNumber && (
+                                          <span
+                                            style={{
+                                              fontSize: "10px",
+                                              color: "#656d76",
+                                              backgroundColor: "#f6f8fa",
+                                              padding: "2px 6px",
+                                              borderRadius: "3px",
+                                              fontFamily: "monospace",
+                                            }}
+                                          >
+                                            #{pipeline.buildNumber}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
 
                                     {/* Open Icon */}
                                     <Icon
                                       iconName="OpenInNewWindow"
-                                      style={{ fontSize: "10px", color: "#666" }}
+                                      style={{ 
+                                        fontSize: "12px", 
+                                        color: "#656d76",
+                                        opacity: 0.7,
+                                      }}
                                     />
                                   </div>
                                 );
