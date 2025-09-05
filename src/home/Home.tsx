@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.58";
+const EXTENSION_VERSION = "0.0.59";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -53,6 +53,7 @@ interface RepositoryBuildStatus {
   isLoading: boolean;
   definitionId?: number;
   definitionName?: string;
+  pipelineNames?: string[];
 }
 
 interface PullRequestBuildStatus {
@@ -497,11 +498,15 @@ export class HomePage extends React.Component<object, HomePageState> {
               [repo.id!]: {
                 status: BuildStatus.None,
                 isLoading: false,
+                pipelineNames: [],
               },
             },
           }));
           return;
         }
+
+        // Extract all pipeline names for this repository
+        const pipelineNames = definitions.map(def => def.name).filter(name => name);
 
         const prValidationDef = definitions[0];
 
@@ -512,6 +517,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               [repo.id!]: {
                 status: BuildStatus.None,
                 isLoading: false,
+                pipelineNames: pipelineNames,
               },
             },
           }));
@@ -547,6 +553,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               isLoading: false,
               definitionId: prValidationDef.id,
               definitionName: prValidationDef.name,
+              pipelineNames: pipelineNames,
             };
 
             this.setState((prevState) => ({
@@ -563,6 +570,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                 [repo.id!]: {
                   status: BuildStatus.None,
                   isLoading: false,
+                  pipelineNames: pipelineNames,
                 },
               },
             }));
@@ -575,6 +583,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               [repo.id!]: {
                 status: BuildStatus.None,
                 isLoading: false,
+                pipelineNames: pipelineNames,
               },
             },
           }));
@@ -2039,6 +2048,33 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         #{buildStatuses[repo.id].buildNumber}
                                       </span>
                                     )}
+                                  </span>
+                                </>
+                              )}
+
+                              {/* Pipeline Names */}
+                              {repo.id && buildStatuses[repo.id]?.pipelineNames && buildStatuses[repo.id].pipelineNames!.length > 0 && (
+                                <>
+                                  <span>•</span>
+                                  <span
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      color: "#0078d4",
+                                      fontSize: "11px",
+                                    }}
+                                    title={`Pipelines: ${buildStatuses[repo.id].pipelineNames!.join(", ")}`}
+                                  >
+                                    <Icon
+                                      iconName="BuildDefinition"
+                                      style={{ fontSize: "10px" }}
+                                    />
+                                    <span style={{ fontWeight: "500" }}>
+                                      {buildStatuses[repo.id].pipelineNames!.length === 1
+                                        ? buildStatuses[repo.id].pipelineNames![0]
+                                        : `${buildStatuses[repo.id].pipelineNames!.length} pipelines`}
+                                    </span>
                                   </span>
                                 </>
                               )}
