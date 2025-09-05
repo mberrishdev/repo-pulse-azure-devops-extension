@@ -5,7 +5,7 @@ import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
 
-const EXTENSION_VERSION = "0.0.64";
+const EXTENSION_VERSION = "0.0.65";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -1816,29 +1816,29 @@ export class HomePage extends React.Component<object, HomePageState> {
                   {repos
                     .filter((repo) => repo && repo.id)
                     .map((repo) => (
-                      <div
-                        key={repo.id}
-                        style={{
-                          backgroundColor: "white",
-                          border: "1px solid #e1e1e1",
-                          borderRadius: "6px",
-                          padding: "16px 20px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          transition:
-                            "box-shadow 0.2s ease, border-color 0.2s ease",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.boxShadow =
-                            "0 2px 8px rgba(0,0,0,0.1)";
-                          e.currentTarget.style.borderColor = "#0078d4";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.boxShadow = "none";
-                          e.currentTarget.style.borderColor = "#e1e1e1";
-                        }}
-                      >
+                      <div key={repo.id}>
+                        <div
+                          style={{
+                            backgroundColor: "white",
+                            border: "1px solid #e1e1e1",
+                            borderRadius: "6px",
+                            padding: "16px 20px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            transition:
+                              "box-shadow 0.2s ease, border-color 0.2s ease",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow =
+                              "0 2px 8px rgba(0,0,0,0.1)";
+                            e.currentTarget.style.borderColor = "#0078d4";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = "none";
+                            e.currentTarget.style.borderColor = "#e1e1e1";
+                          }}
+                        >
                         <div
                           style={{
                             display: "flex",
@@ -2154,6 +2154,111 @@ export class HomePage extends React.Component<object, HomePageState> {
                             />
                           )}
                         </div>
+                        </div>
+
+                        {/* Pipeline List - Indented under repository card */}
+                        {repo.id && buildStatuses[repo.id]?.pipelineNames && buildStatuses[repo.id].pipelineNames!.length > 0 && (
+                          <div
+                            style={{
+                              marginLeft: "40px",
+                              marginTop: "8px",
+                              marginBottom: "8px",
+                              backgroundColor: "#f8f9fa",
+                              border: "1px solid #e1e1e1",
+                              borderRadius: "4px",
+                              padding: "12px 16px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              <Icon
+                                iconName="BuildDefinition"
+                                style={{ fontSize: "14px", color: "#0078d4" }}
+                              />
+                              <span
+                                className="body-small"
+                                style={{
+                                  fontWeight: "600",
+                                  color: "#323130",
+                                }}
+                              >
+                                Pipelines ({buildStatuses[repo.id].pipelineNames!.length})
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "6px",
+                              }}
+                            >
+                              {buildStatuses[repo.id].pipelineNames!.map((name, index) => {
+                                const url = buildStatuses[repo.id].pipelineUrls?.[index];
+                                return (
+                                  <div
+                                    key={index}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px",
+                                      padding: "6px 8px",
+                                      backgroundColor: "white",
+                                      borderRadius: "3px",
+                                      border: "1px solid #e1e1e1",
+                                      transition: "background-color 0.2s ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (url) {
+                                        e.currentTarget.style.backgroundColor = "#f0f8ff";
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (url) {
+                                        e.currentTarget.style.backgroundColor = "white";
+                                      }
+                                    }}
+                                  >
+                                    <Icon
+                                      iconName="BuildDefinition"
+                                      style={{ fontSize: "12px", color: "#0078d4" }}
+                                    />
+                                    <span
+                                      style={{
+                                        color: url ? "#0078d4" : "#666",
+                                        cursor: url ? "pointer" : "default",
+                                        textDecoration: url ? "underline" : "none",
+                                        fontSize: "12px",
+                                        fontWeight: "500",
+                                        flex: 1,
+                                      }}
+                                      onClick={(e) => {
+                                        if (url) {
+                                          e.stopPropagation();
+                                          this.navigateToUrl(url);
+                                        }
+                                      }}
+                                      title={url ? `Click to open ${name} pipeline` : name}
+                                    >
+                                      {name}
+                                    </span>
+                                    {url && (
+                                      <Icon
+                                        iconName="OpenInNewWindow"
+                                        style={{ fontSize: "10px", color: "#666" }}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                 </div>
