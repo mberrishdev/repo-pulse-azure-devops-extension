@@ -55,6 +55,18 @@ interface RepositoryBuildStatus {
   definitionName?: string;
   pipelineNames?: string[];
   pipelineUrls?: string[]; // Array of pipeline URLs associated with this repository
+  pipelineDetails?: PipelineDetail[]; // Detailed information for each pipeline
+}
+
+interface PipelineDetail {
+  name: string;
+  url: string;
+  definitionId: number;
+  status: BuildStatus;
+  result?: BuildResult;
+  lastBuildTime?: Date;
+  buildNumber?: string;
+  buildId?: number;
 }
 
 interface PullRequestBuildStatus {
@@ -495,6 +507,62 @@ export class HomePage extends React.Component<object, HomePageState> {
           return null;
         }).filter((url): url is string => url !== null);
 
+        // Get detailed pipeline information including build status
+        const pipelineDetails: PipelineDetail[] = [];
+        
+        for (const def of definitions) {
+          if (!def.id || !def.name) continue;
+
+          try {
+            // Get the latest build for this pipeline
+            const builds = await this.buildClient!.getBuilds(
+              projectName,
+              [def.id],
+              undefined, // queues
+              undefined, // buildNumber
+              undefined, // minTime
+              undefined, // maxTime
+              undefined, // requestedFor
+              undefined, // reasonFilter
+              undefined, // statusFilter
+              undefined, // resultFilter
+              undefined, // tagFilters
+              undefined, // properties
+              1 // top - get only the latest build
+            );
+
+            const latestBuild = builds.length > 0 ? builds[0] : null;
+            
+            pipelineDetails.push({
+              name: def.name,
+              url: `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`,
+              definitionId: def.id,
+              status: latestBuild?.status || BuildStatus.None,
+              result: latestBuild?.result,
+              lastBuildTime: latestBuild?.finishTime || latestBuild?.startTime,
+              buildNumber: latestBuild?.buildNumber,
+              buildId: latestBuild?.id,
+            });
+          } catch (error) {
+            console.warn(`Failed to get build info for pipeline ${def.name}:`, error);
+            // Add pipeline without build info
+            pipelineDetails.push({
+              name: def.name,
+              url: `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`,
+              definitionId: def.id,
+              status: BuildStatus.None,
+            });
+          }
+        }
+
+        // Sort pipelines by last build time (newest first)
+        pipelineDetails.sort((a, b) => {
+          if (!a.lastBuildTime && !b.lastBuildTime) return 0;
+          if (!a.lastBuildTime) return 1;
+          if (!b.lastBuildTime) return -1;
+          return new Date(b.lastBuildTime).getTime() - new Date(a.lastBuildTime).getTime();
+        });
+
         // Find the most relevant definition (prefer pr-validation or azure-pipeline)
         let prValidationDef = definitions.find(def => 
           def.name?.toLowerCase().includes("pr-validation") ||
@@ -515,6 +583,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                 isLoading: false,
                 pipelineNames: pipelineNames,
                 pipelineUrls: pipelineUrls,
+                pipelineDetails: pipelineDetails,
               },
             },
           }));
@@ -584,6 +653,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                 isLoading: false,
                 pipelineNames: pipelineNames,
                 pipelineUrls: pipelineUrls,
+                pipelineDetails: pipelineDetails,
               },
             },
           }));
@@ -2051,62 +2121,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   </span>
                                 </>
                               )}
-
-                              {/* Pipeline Names */}
-                              {repo.id && buildStatuses[repo.id]?.pipelineNames && buildStatuses[repo.id].pipelineNames!.length > 0 && (
-                                <>
-                                  <span>•</span>
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: "4px",
-                                      fontSize: "11px",
-                                    }}
-                                  >
-                                    <Icon
-                                      iconName="BuildDefinition"
-                                      style={{ fontSize: "10px", color: "#0078d4" }}
-                                    />
-                                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                      {buildStatuses[repo.id].pipelineNames!.map((name, index) => {
-                                        const url = buildStatuses[repo.id].pipelineUrls?.[index];
-                                        return (
-                                          <span
-                                            key={index}
-                                            style={{
-                                              color: url ? "#0078d4" : "#666",
-                                              fontWeight: "500",
-                                              cursor: url ? "pointer" : "default",
-                                              textDecoration: url ? "underline" : "none",
-                                              transition: "color 0.2s ease",
-                                            }}
-                                            onClick={(e) => {
-                                              if (url) {
-                                                e.stopPropagation();
-                                                this.navigateToUrl(url);
-                                              }
-                                            }}
-                                            onMouseEnter={(e) => {
-                                              if (url) {
-                                                e.currentTarget.style.color = "#106ebe";
-                                              }
-                                            }}
-                                            onMouseLeave={(e) => {
-                                              if (url) {
-                                                e.currentTarget.style.color = "#0078d4";
-                                              }
-                                            }}
-                                            title={url ? `Click to open ${name} pipeline` : name}
-                                          >
-                                            {name}
-                                          </span>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                </>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -2157,7 +2171,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                         </div>
 
                         {/* Pipeline List - Indented under repository card */}
-                        {repo.id && buildStatuses[repo.id]?.pipelineNames && buildStatuses[repo.id].pipelineNames!.length > 0 && (
+                        {repo.id && buildStatuses[repo.id]?.pipelineDetails && buildStatuses[repo.id].pipelineDetails!.length > 0 && (
                           <div
                             style={{
                               marginLeft: "40px",
@@ -2188,7 +2202,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   color: "#323130",
                                 }}
                               >
-                                Pipelines ({buildStatuses[repo.id].pipelineNames!.length})
+                                Pipelines ({buildStatuses[repo.id].pipelineDetails!.length})
                               </span>
                             </div>
                             <div
@@ -2198,8 +2212,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                 gap: "6px",
                               }}
                             >
-                              {buildStatuses[repo.id].pipelineNames!.map((name, index) => {
-                                const url = buildStatuses[repo.id].pipelineUrls?.[index];
+                              {buildStatuses[repo.id].pipelineDetails!.map((pipeline, index) => {
                                 return (
                                   <div
                                     key={index}
@@ -2207,52 +2220,95 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       display: "flex",
                                       alignItems: "center",
                                       gap: "8px",
-                                      padding: "6px 8px",
+                                      padding: "8px 12px",
                                       backgroundColor: "white",
                                       borderRadius: "3px",
                                       border: "1px solid #e1e1e1",
                                       transition: "background-color 0.2s ease",
                                     }}
                                     onMouseEnter={(e) => {
-                                      if (url) {
-                                        e.currentTarget.style.backgroundColor = "#f0f8ff";
-                                      }
+                                      e.currentTarget.style.backgroundColor = "#f0f8ff";
                                     }}
                                     onMouseLeave={(e) => {
-                                      if (url) {
-                                        e.currentTarget.style.backgroundColor = "white";
-                                      }
+                                      e.currentTarget.style.backgroundColor = "white";
                                     }}
                                   >
+                                    {/* Build Status Icon */}
                                     <Icon
-                                      iconName="BuildDefinition"
-                                      style={{ fontSize: "12px", color: "#0078d4" }}
+                                      iconName={this.getBuildStatusIcon(pipeline.status, pipeline.result)}
+                                      style={{ 
+                                        fontSize: "12px", 
+                                        color: this.getBuildStatusColor(pipeline.status, pipeline.result) 
+                                      }}
                                     />
+                                    
+                                    {/* Pipeline Name */}
                                     <span
                                       style={{
-                                        color: url ? "#0078d4" : "#666",
-                                        cursor: url ? "pointer" : "default",
-                                        textDecoration: url ? "underline" : "none",
+                                        color: "#0078d4",
+                                        cursor: "pointer",
+                                        textDecoration: "underline",
                                         fontSize: "12px",
                                         fontWeight: "500",
                                         flex: 1,
                                       }}
                                       onClick={(e) => {
-                                        if (url) {
-                                          e.stopPropagation();
-                                          this.navigateToUrl(url);
-                                        }
+                                        e.stopPropagation();
+                                        this.navigateToUrl(pipeline.url);
                                       }}
-                                      title={url ? `Click to open ${name} pipeline` : name}
+                                      title={`Click to open ${pipeline.name} pipeline`}
                                     >
-                                      {name}
+                                      {pipeline.name}
                                     </span>
-                                    {url && (
-                                      <Icon
-                                        iconName="OpenInNewWindow"
-                                        style={{ fontSize: "10px", color: "#666" }}
-                                      />
+
+                                    {/* Build Status Text */}
+                                    <span
+                                      style={{
+                                        fontSize: "11px",
+                                        color: this.getBuildStatusColor(pipeline.status, pipeline.result),
+                                        fontWeight: "500",
+                                        minWidth: "60px",
+                                        textAlign: "right",
+                                      }}
+                                    >
+                                      {this.getBuildStatusText(pipeline.status, pipeline.result)}
+                                    </span>
+
+                                    {/* Last Build Time */}
+                                    {pipeline.lastBuildTime && (
+                                      <span
+                                        style={{
+                                          fontSize: "10px",
+                                          color: "#666",
+                                          minWidth: "80px",
+                                          textAlign: "right",
+                                        }}
+                                        title={`Last build: ${new Date(pipeline.lastBuildTime).toLocaleString()}`}
+                                      >
+                                        {new Date(pipeline.lastBuildTime).toLocaleDateString()}
+                                      </span>
                                     )}
+
+                                    {/* Build Number */}
+                                    {pipeline.buildNumber && (
+                                      <span
+                                        style={{
+                                          fontSize: "10px",
+                                          color: "#666",
+                                          backgroundColor: "#f0f0f0",
+                                          padding: "2px 4px",
+                                          borderRadius: "2px",
+                                        }}
+                                      >
+                                        #{pipeline.buildNumber}
+                                      </span>
+                                    )}
+
+                                    {/* Open Icon */}
+                                    <Icon
+                                      iconName="OpenInNewWindow"
+                                      style={{ fontSize: "10px", color: "#666" }}
+                                    />
                                   </div>
                                 );
                               })}
