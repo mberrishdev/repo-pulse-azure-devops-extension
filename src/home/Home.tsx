@@ -9,7 +9,7 @@ import {
   PolicyConfiguration,
 } from "azure-devops-extension-api/Policy";
 
-const EXTENSION_VERSION = "0.0.77";
+const EXTENSION_VERSION = "0.0.83";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -20,16 +20,16 @@ import {
 } from "azure-devops-extension-api/Git";
 import {
   BuildRestClient,
-  Build,
   BuildStatus,
   BuildResult,
-  BuildDefinitionReference,
 } from "azure-devops-extension-api/Build";
 import {
   CommonServiceIds,
   IGlobalMessagesService,
   IToast,
 } from "azure-devops-extension-api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface HomePageState {
   repos: GitRepository[];
@@ -46,6 +46,9 @@ interface HomePageState {
   prBuildStatuses: Record<number, PullRequestBuildStatus>;
   loadingPRBuilds: boolean;
   expandedPipelineRepos: Set<string>;
+  reviewPR: GitPullRequest | null;
+  hasAcknowledgedReview: boolean;
+  isReviewLoading: boolean;
 }
 
 interface RepositoryBuildStatus {
@@ -59,8 +62,8 @@ interface RepositoryBuildStatus {
   definitionId?: number;
   definitionName?: string;
   pipelineNames?: string[];
-  pipelineUrls?: string[]; // Array of pipeline URLs associated with this repository
-  pipelineDetails?: PipelineDetail[]; // Detailed information for each pipeline
+  pipelineUrls?: string[];
+  pipelineDetails?: PipelineDetail[];
 }
 
 interface PipelineDetail {
@@ -155,11 +158,9 @@ export class HomePage extends React.Component<object, HomePageState> {
       const aIsFavorite = favoriteRepoIds.has(a.id || "");
       const bIsFavorite = favoriteRepoIds.has(b.id || "");
 
-      // If one is favorite and the other isn't, favorite comes first
       if (aIsFavorite && !bIsFavorite) return -1;
       if (!aIsFavorite && bIsFavorite) return 1;
 
-      // If both are favorites or both are not favorites, sort alphabetically by name
       return (a.name || "").localeCompare(b.name || "");
     });
   }
@@ -226,6 +227,9 @@ export class HomePage extends React.Component<object, HomePageState> {
       prBuildStatuses: {},
       loadingPRBuilds: false,
       expandedPipelineRepos: new Set<string>(),
+      reviewPR: null,
+      hasAcknowledgedReview: false,
+      isReviewLoading: false,
     };
   }
 
@@ -252,7 +256,6 @@ export class HomePage extends React.Component<object, HomePageState> {
   }
 
   public componentWillUnmount() {
-    // Clean up browser history event listener from both iframe and parent
     window.removeEventListener("popstate", this.handlePopState);
 
     try {
@@ -272,7 +275,9 @@ export class HomePage extends React.Component<object, HomePageState> {
         window.top.addEventListener("popstate", this.handlePopState);
       }
     } catch (error) {
-      console.log("Cross-origin restriction, only iframe navigation will work");
+      console.error(
+        "Cross-origin restriction, only iframe navigation will work"
+      );
     }
 
     const currentTab = this.getQueryParam("tab");
@@ -1258,18 +1263,6 @@ export class HomePage extends React.Component<object, HomePageState> {
     this.navigateToUrl(repoUrl);
   };
 
-  private openBuild = (buildId: number) => {
-    const projectInfo = this.getProjectInfo();
-
-    if (!projectInfo?.name) {
-      console.error("Cannot open build: No project context available");
-      return;
-    }
-
-    const buildUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_build/results?buildId=${buildId}`;
-    this.navigateToUrl(buildUrl);
-  };
-
   private createUpdatePRFromMaster = async (
     repo: GitRepository,
     targetRefName?: string
@@ -1455,45 +1448,6 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
   };
 
-  private triggerSelectedPipelines = async () => {
-    const { selectedRepoIds, repos, buildStatuses } = this.state;
-
-    if (selectedRepoIds.size === 0) {
-      await this.showToast("Please select at least one repository", "warning");
-      return;
-    }
-
-    this.setState({ isTriggeringPipelines: true });
-
-    const triggerPromises = Array.from(selectedRepoIds).map(async (repoId) => {
-      const repo = repos.find((r) => r.id === repoId);
-      const buildStatus = buildStatuses[repoId];
-
-      if (repo && buildStatus?.definitionId) {
-        await this.triggerPipeline(
-          repoId,
-          buildStatus.definitionId,
-          repo.name || "Unknown"
-        );
-      }
-    });
-
-    try {
-      await Promise.allSettled(triggerPromises);
-      await this.showToast(
-        `Triggered pipelines for ${selectedRepoIds.size} repositories`,
-        "success"
-      );
-    } catch (error) {
-      console.error("Error during batch pipeline trigger:", error);
-    } finally {
-      this.setState({
-        isTriggeringPipelines: false,
-        selectedRepoIds: new Set(), // Clear selection after triggering
-      });
-    }
-  };
-
   private refreshBuildStatusForRepo = async (
     repoId: string,
     projectName: string
@@ -1559,21 +1513,6 @@ export class HomePage extends React.Component<object, HomePageState> {
     });
   };
 
-  private selectAllRepos = () => {
-    const { repos, buildStatuses } = this.state;
-    const reposWithPipelines = repos.filter(
-      (repo) => repo.id && buildStatuses[repo.id]?.definitionId
-    );
-
-    this.setState({
-      selectedRepoIds: new Set(reposWithPipelines.map((repo) => repo.id!)),
-    });
-  };
-
-  private clearRepoSelection = () => {
-    this.setState({ selectedRepoIds: new Set() });
-  };
-
   private publishDraftPR = async (pr: GitPullRequest) => {
     try {
       if (!this.gitClient || !pr.pullRequestId || !pr.repository?.id) {
@@ -1617,73 +1556,8 @@ export class HomePage extends React.Component<object, HomePageState> {
     }
   };
 
-  private publishAllDraftsInGroup = async (
-    groupTitle: string,
-    prs: GitPullRequest[]
-  ) => {
-    const draftPRs = prs.filter((pr) => pr.isDraft);
-
-    if (draftPRs.length === 0) {
-      await this.showToast(
-        `No draft pull requests to publish in "${groupTitle}"`,
-        "info"
-      );
-      return;
-    }
-
-    let successCount = 0;
-    let errorCount = 0;
-
-    const publishPromises = draftPRs.map(async (pr) => {
-      try {
-        if (!this.gitClient || !pr.pullRequestId || !pr.repository?.id) {
-          throw new Error("Git client not initialized or PR data incomplete");
-        }
-
-        const updatedPR: Partial<GitPullRequest> = {
-          isDraft: false,
-        };
-
-        await this.gitClient.updatePullRequest(
-          updatedPR as GitPullRequest,
-          pr.repository.id,
-          pr.pullRequestId
-        );
-
-        successCount++;
-      } catch (error) {
-        console.error(`Failed to publish draft PR ${pr.pullRequestId}:`, error);
-        errorCount++;
-      }
-    });
-
-    await Promise.allSettled(publishPromises);
-
-    if (successCount > 0) {
-      await this.showToast(
-        `Successfully published ${successCount} draft pull request${
-          successCount !== 1 ? "s" : ""
-        } from "${groupTitle}"!`,
-        "success"
-      );
-    }
-
-    if (errorCount > 0) {
-      await this.showToast(
-        `Failed to publish ${errorCount} draft pull request${
-          errorCount !== 1 ? "s" : ""
-        } from "${groupTitle}"`,
-        "error"
-      );
-    }
-
-    // Refresh pull requests to reflect the changes
-    await this.loadPullRequests();
-  };
-
   private getQueryParam(param: string): string | null {
     try {
-      // Try to get query param from parent window first (main Azure DevOps page)
       if (window.top && window.top !== window) {
         try {
           const parentUrlParams = new URLSearchParams(
@@ -1694,12 +1568,10 @@ export class HomePage extends React.Component<object, HomePageState> {
             return parentParam;
           }
         } catch (crossOriginError) {
-          // Cross-origin restriction, fall back to iframe URL
           console.log("Cross-origin restriction, reading from iframe URL");
         }
       }
 
-      // Fallback to iframe URL
       const urlParams = new URLSearchParams(window.location.search);
       return urlParams.get(param);
     } catch (error) {
@@ -1710,26 +1582,23 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private setQueryParam(param: string, value: string) {
     try {
-      // Try to update parent window URL (main Azure DevOps page)
       if (window.top && window.top !== window) {
         try {
           const parentUrl = new URL(window.top.location.href);
           parentUrl.searchParams.set(param, value);
 
-          // Update parent window URL without reloading
           window.top.history.replaceState({}, "", parentUrl.toString());
-          return; // Success, no need to update iframe URL
+          return;
         } catch (crossOriginError) {
-          // Cross-origin restriction, fall back to iframe URL
-          console.log("Cross-origin restriction, updating iframe URL instead");
+          console.error(
+            "Cross-origin restriction, updating iframe URL instead"
+          );
         }
       }
 
-      // Fallback to updating iframe URL
       const url = new URL(window.location.href);
       url.searchParams.set(param, value);
 
-      // Update the iframe URL without reloading the page
       window.history.replaceState({}, "", url.toString());
     } catch (error) {
       console.error("Error setting query parameters:", error);
@@ -1738,13 +1607,9 @@ export class HomePage extends React.Component<object, HomePageState> {
 
   private getInitialTabFromUrl(): string {
     const tabParam = this.getQueryParam("tab");
-
-    // Validate the tab parameter
     if (tabParam === "repositories" || tabParam === "pullrequests") {
       return tabParam;
     }
-
-    // Default to repositories if no valid tab parameter
     return "repositories";
   }
 
@@ -1767,24 +1632,20 @@ export class HomePage extends React.Component<object, HomePageState> {
         newFavoriteRepoIds.add(repoId);
       }
 
-      // Update state immediately for responsive UI
       this.setState({ favoriteRepoIds: newFavoriteRepoIds });
 
-      // Save to localStorage with project-specific key
       const storageKey = `repo-pulse-favorites-${projectInfo.name}`;
       localStorage.setItem(
         storageKey,
         JSON.stringify(Array.from(newFavoriteRepoIds))
       );
 
-      // Re-sort repositories to move favorites to top
       const sortedRepos = this.sortRepositoriesByFavorites(
         this.state.repos,
         newFavoriteRepoIds
       );
       this.setState({ repos: sortedRepos });
 
-      // Show feedback
       const repoName =
         this.state.repos.find((r) => r.id === repoId)?.name || "Repository";
       await this.showToast(
@@ -1875,7 +1736,6 @@ export class HomePage extends React.Component<object, HomePageState> {
 
           {selectedTabId === "repositories" && (
             <div>
-
               {loading && (
                 <div
                   className="body-medium"
@@ -2144,191 +2004,132 @@ export class HomePage extends React.Component<object, HomePageState> {
                               >
                                 {(this.state.expandedPipelineRepos.has(repo.id!)
                                   ? buildStatuses[repo.id].pipelineDetails!
-                                  : buildStatuses[repo.id].pipelineDetails!.slice(0, 3)
-                                ).map(
-                                  (pipeline, index) => {
-                                    const timeAgo = pipeline.lastBuildTime
-                                      ? this.getTimeAgo(
-                                          new Date(pipeline.lastBuildTime)
-                                        )
-                                      : "Never";
+                                  : buildStatuses[
+                                      repo.id
+                                    ].pipelineDetails!.slice(0, 3)
+                                ).map((pipeline, index) => {
+                                  const timeAgo = pipeline.lastBuildTime
+                                    ? this.getTimeAgo(
+                                        new Date(pipeline.lastBuildTime)
+                                      )
+                                    : "Never";
 
-                                    return (
+                                  return (
+                                    <div
+                                      key={index}
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "12px",
+                                        padding: "12px 16px",
+                                        backgroundColor: "white",
+                                        borderRadius: "6px",
+                                        border: "1px solid #d0d7de",
+                                        transition: "all 0.2s ease",
+                                        cursor: "pointer",
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor =
+                                          "#f6f8fa";
+                                        e.currentTarget.style.borderColor =
+                                          "#0078d4";
+                                        e.currentTarget.style.boxShadow =
+                                          "0 2px 4px rgba(0, 120, 212, 0.1)";
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor =
+                                          "white";
+                                        e.currentTarget.style.borderColor =
+                                          "#d0d7de";
+                                        e.currentTarget.style.boxShadow =
+                                          "none";
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        this.navigateToUrl(pipeline.url);
+                                      }}
+                                      title={`Click to open ${pipeline.name} pipeline`}
+                                    >
+                                      {/* Build Status Icon */}
                                       <div
-                                        key={index}
                                         style={{
                                           display: "flex",
                                           alignItems: "center",
-                                          gap: "12px",
-                                          padding: "12px 16px",
-                                          backgroundColor: "white",
-                                          borderRadius: "6px",
-                                          border: "1px solid #d0d7de",
-                                          transition: "all 0.2s ease",
-                                          cursor: "pointer",
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            "#f6f8fa";
-                                          e.currentTarget.style.borderColor =
-                                            "#0078d4";
-                                          e.currentTarget.style.boxShadow =
-                                            "0 2px 4px rgba(0, 120, 212, 0.1)";
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.backgroundColor =
-                                            "white";
-                                          e.currentTarget.style.borderColor =
-                                            "#d0d7de";
-                                          e.currentTarget.style.boxShadow =
-                                            "none";
-                                        }}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          this.navigateToUrl(pipeline.url);
-                                        }}
-                                        title={`Click to open ${pipeline.name} pipeline`}
-                                      >
-                                        {/* Build Status Icon */}
-                                        <div
-                                          style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            width: "24px",
-                                            height: "24px",
-                                            borderRadius: "50%",
-                                            backgroundColor:
-                                              this.getBuildStatusColor(
-                                                pipeline.status,
-                                                pipeline.result
-                                              ) + "20",
-                                          }}
-                                        >
-                                          <Icon
-                                            iconName={this.getBuildStatusIcon(
+                                          justifyContent: "center",
+                                          width: "24px",
+                                          height: "24px",
+                                          borderRadius: "50%",
+                                          backgroundColor:
+                                            this.getBuildStatusColor(
                                               pipeline.status,
                                               pipeline.result
-                                            )}
-                                            style={{
-                                              fontSize: "14px",
-                                              color: this.getBuildStatusColor(
-                                                pipeline.status,
-                                                pipeline.result
-                                              ),
-                                            }}
-                                          />
-                                        </div>
-
-                                        {/* Pipeline Info */}
-                                        <div
+                                            ) + "20",
+                                        }}
+                                      >
+                                        <Icon
+                                          iconName={this.getBuildStatusIcon(
+                                            pipeline.status,
+                                            pipeline.result
+                                          )}
                                           style={{
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            flex: 1,
-                                            gap: "2px",
+                                            fontSize: "14px",
+                                            color: this.getBuildStatusColor(
+                                              pipeline.status,
+                                              pipeline.result
+                                            ),
+                                          }}
+                                        />
+                                      </div>
+
+                                      {/* Pipeline Info */}
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          flex: 1,
+                                          gap: "2px",
+                                        }}
+                                      >
+                                        {/* Pipeline Name */}
+                                        <span
+                                          style={{
+                                            color: "#0078d4",
+                                            fontSize: "13px",
+                                            fontWeight: "600",
+                                            lineHeight: "1.4",
                                           }}
                                         >
-                                          {/* Pipeline Name */}
-                                          <span
-                                            style={{
-                                              color: "#0078d4",
-                                              fontSize: "13px",
-                                              fontWeight: "600",
-                                              lineHeight: "1.4",
-                                            }}
-                                          >
-                                            {pipeline.name}
-                                            {pipeline.isBuildPipeline && (
-                                              <span
-                                                className="body-xsmall"
-                                                style={{
-                                                  display: "inline-flex",
-                                                  alignItems: "center",
-                                                  gap: "4px",
-                                                  marginLeft: "8px",
-                                                  padding: "2px 6px",
-                                                  borderRadius: "10px",
-                                                  backgroundColor: "#E6F2FB",
-                                                  border: "1px solid #B3D8F5",
-                                                  color: "#106EBE",
-                                                  fontWeight: 600,
-                                                }}
-                                                title="Build validation pipeline"
-                                              >
-                                                <Icon
-                                                  iconName="Shield"
-                                                  style={{
-                                                    fontSize: "12px",
-                                                    color: "#106EBE",
-                                                  }}
-                                                />
-                                                Build validation
-                                              </span>
-                                            )}
-                                          </span>
-
-                                          {/* Status and Time Row */}
-                                          <div
-                                            style={{
-                                              display: "flex",
-                                              alignItems: "center",
-                                              gap: "8px",
-                                            }}
-                                          >
-                                            {/* Build Status Text */}
+                                          {pipeline.name}
+                                          {pipeline.isBuildPipeline && (
                                             <span
+                                              className="body-xsmall"
                                               style={{
-                                                fontSize: "11px",
-                                                color: this.getBuildStatusColor(
-                                                  pipeline.status,
-                                                  pipeline.result
-                                                ),
-                                                fontWeight: "500",
-                                                backgroundColor:
-                                                  this.getBuildStatusColor(
-                                                    pipeline.status,
-                                                    pipeline.result
-                                                  ) + "15",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: "4px",
+                                                marginLeft: "8px",
                                                 padding: "2px 6px",
-                                                borderRadius: "3px",
+                                                borderRadius: "10px",
+                                                backgroundColor: "#E6F2FB",
+                                                border: "1px solid #B3D8F5",
+                                                color: "#106EBE",
+                                                fontWeight: 600,
                                               }}
+                                              title="Build validation pipeline"
                                             >
-                                              {this.getBuildStatusText(
-                                                pipeline.status,
-                                                pipeline.result
-                                              )}
-                                            </span>
-
-                                            {/* Last Build Time */}
-                                            <span
-                                              style={{
-                                                fontSize: "11px",
-                                                color: "#656d76",
-                                              }}
-                                            >
-                                              {timeAgo}
-                                            </span>
-
-                                            {/* Build Number */}
-                                            {pipeline.buildNumber && (
-                                              <span
+                                              <Icon
+                                                iconName="Shield"
                                                 style={{
-                                                  fontSize: "10px",
-                                                  color: "#656d76",
-                                                  backgroundColor: "#f6f8fa",
-                                                  padding: "2px 6px",
-                                                  borderRadius: "3px",
-                                                  fontFamily: "monospace",
+                                                  fontSize: "12px",
+                                                  color: "#106EBE",
                                                 }}
-                                              >
-                                                #{pipeline.buildNumber}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
+                                              />
+                                              Build validation
+                                            </span>
+                                          )}
+                                        </span>
 
-                                        {/* Actions */}
+                                        {/* Status and Time Row */}
                                         <div
                                           style={{
                                             display: "flex",
@@ -2336,35 +2137,95 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             gap: "8px",
                                           }}
                                         >
-                                          <Button
-                                            text="Trigger"
-                                            iconProps={{ iconName: "Play" }}
-                                            subtle={true}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (repo.id) {
-                                                this.triggerPipeline(
-                                                  repo.id,
-                                                  pipeline.definitionId,
-                                                  repo.name || "Unknown"
-                                                );
-                                              }
-                                            }}
-                                          />
-                                          <Icon
-                                            iconName="OpenInNewWindow"
+                                          {/* Build Status Text */}
+                                          <span
                                             style={{
-                                              fontSize: "12px",
-                                              color: "#656d76",
-                                              opacity: 0.7,
+                                              fontSize: "11px",
+                                              color: this.getBuildStatusColor(
+                                                pipeline.status,
+                                                pipeline.result
+                                              ),
+                                              fontWeight: "500",
+                                              backgroundColor:
+                                                this.getBuildStatusColor(
+                                                  pipeline.status,
+                                                  pipeline.result
+                                                ) + "15",
+                                              padding: "2px 6px",
+                                              borderRadius: "3px",
                                             }}
-                                          />
+                                          >
+                                            {this.getBuildStatusText(
+                                              pipeline.status,
+                                              pipeline.result
+                                            )}
+                                          </span>
+
+                                          {/* Last Build Time */}
+                                          <span
+                                            style={{
+                                              fontSize: "11px",
+                                              color: "#656d76",
+                                            }}
+                                          >
+                                            {timeAgo}
+                                          </span>
+
+                                          {/* Build Number */}
+                                          {pipeline.buildNumber && (
+                                            <span
+                                              style={{
+                                                fontSize: "10px",
+                                                color: "#656d76",
+                                                backgroundColor: "#f6f8fa",
+                                                padding: "2px 6px",
+                                                borderRadius: "3px",
+                                                fontFamily: "monospace",
+                                              }}
+                                            >
+                                              #{pipeline.buildNumber}
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
-                                    );
-                                  }
-                                )}
-                                {buildStatuses[repo.id].pipelineDetails!.length > 3 && (
+
+                                      {/* Actions */}
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "8px",
+                                        }}
+                                      >
+                                        <Button
+                                          text="Trigger"
+                                          iconProps={{ iconName: "Play" }}
+                                          subtle={true}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (repo.id) {
+                                              this.triggerPipeline(
+                                                repo.id,
+                                                pipeline.definitionId,
+                                                repo.name || "Unknown"
+                                              );
+                                            }
+                                          }}
+                                        />
+                                        <Icon
+                                          iconName="OpenInNewWindow"
+                                          style={{
+                                            fontSize: "12px",
+                                            color: "#656d76",
+                                            opacity: 0.7,
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {buildStatuses[repo.id].pipelineDetails!
+                                  .length > 3 && (
                                   <div
                                     style={{
                                       marginTop: "12px",
@@ -2374,25 +2235,34 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   >
                                     <Button
                                       text={
-                                        this.state.expandedPipelineRepos.has(repo.id!)
+                                        this.state.expandedPipelineRepos.has(
+                                          repo.id!
+                                        )
                                           ? "Show less"
                                           : "Show more"
                                       }
                                       iconProps={{
-                                        iconName: this.state.expandedPipelineRepos.has(repo.id!)
-                                          ? "ChevronUp"
-                                          : "ChevronDown",
+                                        iconName:
+                                          this.state.expandedPipelineRepos.has(
+                                            repo.id!
+                                          )
+                                            ? "ChevronUp"
+                                            : "ChevronDown",
                                       }}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         this.setState((prevState) => {
-                                          const next = new Set(prevState.expandedPipelineRepos);
+                                          const next = new Set(
+                                            prevState.expandedPipelineRepos
+                                          );
                                           if (repo.id && next.has(repo.id)) {
                                             next.delete(repo.id);
                                           } else if (repo.id) {
                                             next.add(repo.id);
                                           }
-                                          return { expandedPipelineRepos: next } as any;
+                                          return {
+                                            expandedPipelineRepos: next,
+                                          } as any;
                                         });
                                       }}
                                       primary={false}
@@ -2433,6 +2303,260 @@ export class HomePage extends React.Component<object, HomePageState> {
                     gap: "24px",
                   }}
                 >
+                  {this.state.reviewPR && (
+                    <div
+                      style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: "rgba(0,0,0,0.3)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 9999,
+                      }}
+                      onClick={() =>
+                        this.setState({
+                          reviewPR: null,
+                          hasAcknowledgedReview: false,
+                        })
+                      }
+                    >
+                      <div
+                        style={{
+                          width: "720px",
+                          maxHeight: "80vh",
+                          overflow: "auto",
+                          background: "white",
+                          borderRadius: "8px",
+                          border: "1px solid #e1e1e1",
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div
+                          style={{
+                            padding: "16px 20px",
+                            borderBottom: "1px solid #eee",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <h3 className="title-small" style={{ margin: 0 }}>
+                              Review pull request
+                            </h3>
+                            <Button
+                              text="Close"
+                              iconProps={{ iconName: "Cancel" }}
+                              subtle={true}
+                              onClick={() =>
+                                this.setState({
+                                  reviewPR: null,
+                                  hasAcknowledgedReview: false,
+                                })
+                              }
+                            />
+                          </div>
+                          <div
+                            className="body-small"
+                            style={{ color: "#666", marginTop: "4px" }}
+                          >
+                            Please read the description before publishing.
+                            Confirmation is required.
+                          </div>
+                        </div>
+                        <div style={{ padding: "16px 20px" }}>
+                          <div style={{ marginBottom: "12px" }}>
+                            <div
+                              className="body-small"
+                              style={{ color: "#666", marginBottom: "6px" }}
+                            >
+                              Title
+                            </div>
+                            <div style={{ fontWeight: 600 }}>
+                              {this.state.reviewPR.title}
+                            </div>
+                          </div>
+                          <div style={{ marginBottom: "12px" }}>
+                            <div
+                              className="body-small"
+                              style={{ color: "#666", marginBottom: "6px" }}
+                            >
+                              Description
+                            </div>
+                            <div
+                              style={{
+                                background: "#fafafa",
+                                border: "1px solid #eee",
+                                borderRadius: "6px",
+                                padding: "12px",
+                                maxHeight: "360px",
+                                overflow: "auto",
+                              }}
+                            >
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  a: ({
+                                    href,
+                                    children,
+                                  }: {
+                                    href?: string;
+                                    children: React.ReactNode;
+                                  }) => (
+                                    <a
+                                      href={href}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      {children}
+                                    </a>
+                                  ),
+                                  table: ({
+                                    children,
+                                  }: {
+                                    children: React.ReactNode;
+                                  }) => (
+                                    <table
+                                      style={{
+                                        width: "100%",
+                                        borderCollapse: "collapse",
+                                        margin: "8px 0",
+                                      }}
+                                    >
+                                      {children}
+                                    </table>
+                                  ),
+                                  th: ({
+                                    children,
+                                  }: {
+                                    children: React.ReactNode;
+                                  }) => (
+                                    <th
+                                      style={{
+                                        border: "1px solid #d0d7de",
+                                        padding: "6px 8px",
+                                        background: "#f6f8fa",
+                                        textAlign: "left",
+                                      }}
+                                    >
+                                      {children}
+                                    </th>
+                                  ),
+                                  td: ({
+                                    children,
+                                  }: {
+                                    children: React.ReactNode;
+                                  }) => (
+                                    <td
+                                      style={{
+                                        border: "1px solid #d0d7de",
+                                        padding: "6px 8px",
+                                        verticalAlign: "top",
+                                      }}
+                                    >
+                                      {children}
+                                    </td>
+                                  ),
+                                  code: ({
+                                    inline,
+                                    children,
+                                  }: {
+                                    inline?: boolean;
+                                    children: React.ReactNode;
+                                  }) =>
+                                    inline ? (
+                                      <code
+                                        style={{
+                                          background: "#f6f8fa",
+                                          padding: "0 3px",
+                                          borderRadius: "3px",
+                                          fontFamily: "monospace",
+                                        }}
+                                      >
+                                        {children}
+                                      </code>
+                                    ) : (
+                                      <pre
+                                        style={{
+                                          background: "#0b1021",
+                                          color: "#e6e6e6",
+                                          padding: "12px",
+                                          borderRadius: "6px",
+                                          overflow: "auto",
+                                        }}
+                                      >
+                                        <code
+                                          style={{ fontFamily: "monospace" }}
+                                        >
+                                          {children}
+                                        </code>
+                                      </pre>
+                                    ),
+                                }}
+                              >
+                                {this.state.reviewPR.description ||
+                                  "No description provided."}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={this.state.hasAcknowledgedReview}
+                              onChange={(e) =>
+                                this.setState({
+                                  hasAcknowledgedReview:
+                                    e.currentTarget.checked,
+                                })
+                              }
+                            />
+                            <span>
+                              I have read the description and confirm it’s ready
+                              to publish
+                            </span>
+                          </label>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "flex-end",
+                              gap: "8px",
+                              marginTop: "16px",
+                            }}
+                          >
+                            <Button
+                              text="Publish"
+                              iconProps={{ iconName: "PublishContent" }}
+                              primary={true}
+                              disabled={!this.state.hasAcknowledgedReview}
+                              onClick={async () => {
+                                const pr = this.state.reviewPR;
+                                if (!pr) return;
+                                await this.publishDraftPR(pr);
+                                this.setState({
+                                  reviewPR: null,
+                                  hasAcknowledgedReview: false,
+                                });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {Object.entries(groupedPullRequests).map(([prTitle, prs]) => {
                     const hasDraftPRs = prs.some((pr) => pr.isDraft);
                     const draftCount = prs.filter((pr) => pr.isDraft).length;
@@ -2489,25 +2613,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                               )}
                             </h3>
                           </div>
-                          {hasDraftPRs && (
-                            <Button
-                              text={`Publish ${draftCount} Draft${
-                                draftCount !== 1 ? "s" : ""
-                              }`}
-                              iconProps={{ iconName: "PublishContent" }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                this.publishAllDraftsInGroup(prTitle, prs);
-                              }}
-                              primary={true}
-                              subtle={false}
-                              tooltipProps={{
-                                text: `Publish all ${draftCount} draft pull request${
-                                  draftCount !== 1 ? "s" : ""
-                                } in "${prTitle}" group`,
-                              }}
-                            />
-                          )}
+                          {/* Removed group publish button to enforce individual review */}
                         </div>
 
                         <div
@@ -2818,15 +2924,37 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   {/* Show Publish Draft button for draft PRs */}
                                   {pr.isDraft ? (
                                     <Button
-                                      text="Publish Draft"
-                                      iconProps={{ iconName: "PublishContent" }}
-                                      onClick={(event) => {
-                                        event.stopPropagation(); // Prevent navigation to PR
-                                        this.publishDraftPR(pr);
+                                      text="Review & Publish"
+                                      iconProps={{ iconName: "PreviewLink" }}
+                                      onClick={async (event) => {
+                                        event.stopPropagation();
+                                        try {
+                                          this.setState({
+                                            isReviewLoading: true,
+                                            reviewPR: pr,
+                                            hasAcknowledgedReview: false,
+                                          });
+                                          const full =
+                                            await this.gitClient!.getPullRequest(
+                                              pr.repository!.id!,
+                                              pr.pullRequestId!,
+                                              pr.repository?.project?.name
+                                            );
+                                          this.setState({ reviewPR: full });
+                                        } catch (e) {
+                                          console.warn(
+                                            "Failed to fetch full PR details; falling back to list item.",
+                                            e
+                                          );
+                                        } finally {
+                                          this.setState({
+                                            isReviewLoading: false,
+                                          });
+                                        }
                                       }}
                                       primary={true}
                                       tooltipProps={{
-                                        text: `Publish "${pr.title}" to make it ready for review`,
+                                        text: `Open details to review and publish "${pr.title}"`,
                                       }}
                                     />
                                   ) : (
@@ -2836,7 +2964,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         iconName: "BranchPullRequest",
                                       }}
                                       onClick={(event) => {
-                                        event.stopPropagation(); // Prevent navigation to PR
+                                        event.stopPropagation();
                                         const repoName = pr.repository?.name;
                                         if (repoName) {
                                           const repo = repos.find(
