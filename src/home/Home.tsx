@@ -4,8 +4,12 @@ import { Icon } from "azure-devops-ui/Icon";
 import * as SDK from "azure-devops-extension-sdk";
 import { showRootComponent } from "../Common";
 import { getClient, ILocationService } from "azure-devops-extension-api";
+import {
+  PolicyRestClient,
+  PolicyConfiguration,
+} from "azure-devops-extension-api/Policy";
 
-const EXTENSION_VERSION = "0.0.68";
+const EXTENSION_VERSION = "0.0.72";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -67,7 +71,7 @@ interface PipelineDetail {
   lastBuildTime?: Date;
   buildNumber?: string;
   buildId?: number;
-  isBuildPipeline?: boolean; // Indicates if this is a build pipeline
+  isBuildPipeline?: boolean;
 }
 
 interface PullRequestBuildStatus {
@@ -99,6 +103,7 @@ export class HomePage extends React.Component<object, HomePageState> {
   private CORE_AREA_ID = "79134c72-4a58-4b42-976c-04e7115f32bf";
 
   private gitClient: GitRestClient | null = null;
+  private policyClient: PolicyRestClient | null = null;
   private buildClient: BuildRestClient | null = null;
 
   public async getOrganizationBaseUrl(): Promise<string> {
@@ -112,6 +117,7 @@ export class HomePage extends React.Component<object, HomePageState> {
     try {
       this.gitClient = getClient(GitRestClient);
       this.buildClient = getClient(BuildRestClient);
+      this.policyClient = getClient(PolicyRestClient);
     } catch (error) {
       console.error("Failed to initialize SDK clients:", error);
       throw error;
@@ -468,13 +474,14 @@ export class HomePage extends React.Component<object, HomePageState> {
             true // includeLatestBuilds
           );
 
-          console.log(`TEST-definitions for ${repo.name}:`, repoDefinitions);
-
           if (repoDefinitions.length > 0) {
             definitionsByRepo.set(repo.id, repoDefinitions);
           }
         } catch (error) {
-          console.warn(`Failed to load definitions for repo ${repo.name}:`, error);
+          console.warn(
+            `Failed to load definitions for repo ${repo.name}:`,
+            error
+          );
         }
       }
 
@@ -500,22 +507,33 @@ export class HomePage extends React.Component<object, HomePageState> {
         }
 
         // Extract all pipeline names and URLs for this repository
-        const pipelineNames = definitions.map(def => def.name).filter(name => name);
-        const pipelineUrls = definitions.map(def => {
-          if (def.id && def.name) {
-            return `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`;
-          }
-          return null;
-        }).filter((url): url is string => url !== null);
+        const pipelineNames = definitions
+          .map((def) => def.name)
+          .filter((name) => name);
+        const pipelineUrls = definitions
+          .map((def) => {
+            if (def.id && def.name) {
+              return `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`;
+            }
+            return null;
+          })
+          .filter((url): url is string => url !== null);
+
+        const buildValidationPipelineId = await this.getBuildValidationPipeline(
+          projectName,
+          repo.id,
+          repo.defaultBranch
+        );
+
+        console.log("TEST-DEBUG", repo.id, repo.defaultBranch, buildValidationPipelineId);
 
         // Get detailed pipeline information including build status
         const pipelineDetails: PipelineDetail[] = [];
-        
+
         for (const def of definitions) {
           if (!def.id || !def.name) continue;
 
           try {
-            // Get the latest build for this pipeline
             const builds = await this.buildClient!.getBuilds(
               projectName,
               [def.id],
@@ -533,7 +551,7 @@ export class HomePage extends React.Component<object, HomePageState> {
             );
 
             const latestBuild = builds.length > 0 ? builds[0] : null;
-            
+
             pipelineDetails.push({
               name: def.name,
               url: `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`,
@@ -543,9 +561,13 @@ export class HomePage extends React.Component<object, HomePageState> {
               lastBuildTime: latestBuild?.finishTime || latestBuild?.startTime,
               buildNumber: latestBuild?.buildNumber,
               buildId: latestBuild?.id,
+              isBuildPipeline: def.id === buildValidationPipelineId,
             });
           } catch (error) {
-            console.warn(`Failed to get build info for pipeline ${def.name}:`, error);
+            console.warn(
+              `Failed to get build info for pipeline ${def.name}:`,
+              error
+            );
             // Add pipeline without build info
             pipelineDetails.push({
               name: def.name,
@@ -556,12 +578,18 @@ export class HomePage extends React.Component<object, HomePageState> {
           }
         }
 
-        // Sort pipelines by last build time (newest first)
         pipelineDetails.sort((a, b) => {
+          const aIsBuild = a.isBuildPipeline ? 1 : 0;
+          const bIsBuild = b.isBuildPipeline ? 1 : 0;
+          if (bIsBuild - aIsBuild !== 0) return bIsBuild - aIsBuild;
+
           if (!a.lastBuildTime && !b.lastBuildTime) return 0;
           if (!a.lastBuildTime) return 1;
           if (!b.lastBuildTime) return -1;
-          return new Date(b.lastBuildTime).getTime() - new Date(a.lastBuildTime).getTime();
+          return (
+            new Date(b.lastBuildTime).getTime() -
+            new Date(a.lastBuildTime).getTime()
+          );
         });
 
         // Use the first definition for build status (or any definition)
@@ -659,6 +687,46 @@ export class HomePage extends React.Component<object, HomePageState> {
     } catch (error) {
       console.error("Failed to load build definitions:", error);
     }
+  }
+
+  async getBuildValidationPipeline(
+    projectName: string,
+    repoId: string,
+    refName: string
+  ) {
+    const policyClient = getClient(PolicyRestClient);
+
+    const BUILD_POLICY_TYPE = "0609b952-1397-4640-95ec-e00a01b2c241";
+
+    const scope = JSON.stringify({
+      repositoryId: repoId,
+      refName: refName,
+    });
+
+    const policies: PolicyConfiguration[] =
+      await policyClient.getPolicyConfigurations(
+        projectName,
+        scope,
+        BUILD_POLICY_TYPE
+      );
+
+    const activePolicies = policies.filter(
+      (p) => p.isEnabled && p.isBlocking && !p.isDeleted
+    );
+
+    let buildPipelineId: number | undefined;
+
+    if (activePolicies.length > 0) {
+      buildPipelineId = (
+        activePolicies.sort(
+          (a, b) =>
+            new Date(b.createdDate).getTime() -
+            new Date(a.createdDate).getTime()
+        )[0].settings as any
+      ).buildDefinitionId;
+    }
+
+    return buildPipelineId;
   }
 
   async loadPullRequests() {
@@ -1017,36 +1085,36 @@ export class HomePage extends React.Component<object, HomePageState> {
   private getTimeAgo = (date: Date): string => {
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-    
+
     if (diffInSeconds < 60) {
       return "Just now";
     }
-    
+
     const diffInMinutes = Math.floor(diffInSeconds / 60);
     if (diffInMinutes < 60) {
       return `${diffInMinutes}m ago`;
     }
-    
+
     const diffInHours = Math.floor(diffInMinutes / 60);
     if (diffInHours < 24) {
       return `${diffInHours}h ago`;
     }
-    
+
     const diffInDays = Math.floor(diffInHours / 24);
     if (diffInDays < 7) {
       return `${diffInDays}d ago`;
     }
-    
+
     const diffInWeeks = Math.floor(diffInDays / 7);
     if (diffInWeeks < 4) {
       return `${diffInWeeks}w ago`;
     }
-    
+
     const diffInMonths = Math.floor(diffInDays / 30);
     if (diffInMonths < 12) {
       return `${diffInMonths}mo ago`;
     }
-    
+
     const diffInYears = Math.floor(diffInDays / 365);
     return `${diffInYears}y ago`;
   };
@@ -1941,455 +2009,437 @@ export class HomePage extends React.Component<object, HomePageState> {
                             e.currentTarget.style.borderColor = "#e1e1e1";
                           }}
                         >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "16px",
-                            flex: 1,
-                          }}
-                        >
-                          {/* Checkbox for selection (only show if repo has a pipeline) */}
-                          {repo.id && buildStatuses[repo.id]?.definitionId && (
-                            <input
-                              type="checkbox"
-                              checked={selectedRepoIds.has(repo.id)}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                this.toggleRepoSelection(repo.id!);
-                              }}
-                              style={{
-                                width: "16px",
-                                height: "16px",
-                                cursor: "pointer",
-                                accentColor: "#0078d4",
-                              }}
-                              disabled={isTriggeringPipelines}
-                            />
-                          )}
-
                           <div
-                            className="body-medium"
                             style={{
-                              width: "32px",
-                              height: "32px",
-                              borderRadius: "50%",
-                              backgroundColor: "#0078d4",
                               display: "flex",
                               alignItems: "center",
-                              justifyContent: "center",
-                              color: "white",
-                              fontWeight: "600",
+                              gap: "16px",
+                              flex: 1,
                             }}
                           >
-                            {repo.name.charAt(0).toUpperCase()}
-                          </div>
+                            {/* Checkbox for selection (only show if repo has a pipeline) */}
+                            {repo.id &&
+                              buildStatuses[repo.id]?.definitionId && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRepoIds.has(repo.id)}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    this.toggleRepoSelection(repo.id!);
+                                  }}
+                                  style={{
+                                    width: "16px",
+                                    height: "16px",
+                                    cursor: "pointer",
+                                    accentColor: "#0078d4",
+                                  }}
+                                  disabled={isTriggeringPipelines}
+                                />
+                              )}
 
-                          <div style={{ flex: 1 }}>
                             <div
-                              className="title-small"
+                              className="body-medium"
                               style={{
-                                color: "#323130",
-                                marginBottom: "4px",
+                                width: "32px",
+                                height: "32px",
+                                borderRadius: "50%",
+                                backgroundColor: "#0078d4",
                                 display: "flex",
                                 alignItems: "center",
-                                gap: "8px",
+                                justifyContent: "center",
+                                color: "white",
+                                fontWeight: "600",
                               }}
                             >
-                              <span
+                              {repo.name.charAt(0).toUpperCase()}
+                            </div>
+
+                            <div style={{ flex: 1 }}>
+                              <div
+                                className="title-small"
                                 style={{
-                                  cursor: "pointer",
-                                  color: "#0078d4",
-                                  textDecoration: "none",
-                                  transition: "color 0.2s ease",
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.textDecoration =
-                                    "underline";
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.textDecoration = "none";
-                                }}
-                                onClick={() => this.openRepository(repo)}
-                                title={`Click to open ${repo.name} repository`}
-                              >
-                                {repo.name}
-                              </span>
-                              <span
-                                style={{
-                                  cursor: "pointer",
-                                  padding: "4px",
-                                  borderRadius: "4px",
-                                  display: "inline-flex",
+                                  color: "#323130",
+                                  marginBottom: "4px",
+                                  display: "flex",
                                   alignItems: "center",
-                                  justifyContent: "center",
-                                  transition: "background-color 0.2s ease",
+                                  gap: "8px",
                                 }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  this.toggleFavorite(repo.id || "");
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.backgroundColor =
-                                    "rgba(0, 120, 212, 0.1)";
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.backgroundColor =
-                                    "transparent";
-                                }}
-                                title={
-                                  this.state.favoriteRepoIds.has(repo.id || "")
-                                    ? `Remove ${repo.name} from favorites`
-                                    : `Add ${repo.name} to favorites`
-                                }
                               >
-                                <Icon
-                                  iconName={
+                                <span
+                                  style={{
+                                    cursor: "pointer",
+                                    color: "#0078d4",
+                                    textDecoration: "none",
+                                    transition: "color 0.2s ease",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.textDecoration =
+                                      "underline";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.textDecoration =
+                                      "none";
+                                  }}
+                                  onClick={() => this.openRepository(repo)}
+                                  title={`Click to open ${repo.name} repository`}
+                                >
+                                  {repo.name}
+                                </span>
+                                <span
+                                  style={{
+                                    cursor: "pointer",
+                                    padding: "4px",
+                                    borderRadius: "4px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    transition: "background-color 0.2s ease",
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    this.toggleFavorite(repo.id || "");
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor =
+                                      "rgba(0, 120, 212, 0.1)";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor =
+                                      "transparent";
+                                  }}
+                                  title={
                                     this.state.favoriteRepoIds.has(
                                       repo.id || ""
                                     )
-                                      ? "FavoriteStarFill"
-                                      : "FavoriteStar"
+                                      ? `Remove ${repo.name} from favorites`
+                                      : `Add ${repo.name} to favorites`
                                   }
-                                  style={{
-                                    color: this.state.favoriteRepoIds.has(
-                                      repo.id || ""
-                                    )
-                                      ? "#ffb900"
-                                      : "#666",
-                                    fontSize: "14px",
-                                    transition: "color 0.2s ease",
-                                  }}
-                                />
-                              </span>
-                            </div>
-                            <div
-                              className="body-small"
-                              style={{
-                                color: "#666",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "12px",
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              <span>
-                                Default Branch:{" "}
-                                {repo.defaultBranch?.replace(
-                                  "refs/heads/",
-                                  ""
-                                ) || "None"}
-                              </span>
-                              {repo.id && buildStatuses[repo.id] && (
-                                <>
-                                  <span>•</span>
-                                  <span
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: "4px",
-                                      color: this.getBuildStatusColor(
-                                        buildStatuses[repo.id].status,
-                                        buildStatuses[repo.id].result
-                                      ),
-                                      cursor: buildStatuses[repo.id].buildId
-                                        ? "pointer"
-                                        : "default",
-                                      padding: "2px 4px",
-                                      borderRadius: "4px",
-                                      transition: "background-color 0.2s ease",
-                                    }}
-                                    onClick={(e) => {
-                                      if (buildStatuses[repo.id].buildId) {
-                                        e.stopPropagation();
-                                        this.openBuild(
-                                          buildStatuses[repo.id].buildId!
-                                        );
-                                      }
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      if (buildStatuses[repo.id].buildId) {
-                                        e.currentTarget.style.backgroundColor =
-                                          "rgba(0, 120, 212, 0.1)";
-                                      }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor =
-                                        "transparent";
-                                    }}
-                                    title={
-                                      buildStatuses[repo.id].buildId
-                                        ? `Click to view build #${
-                                            buildStatuses[repo.id]
-                                              .buildNumber ||
-                                            buildStatuses[repo.id].buildId
-                                          }`
-                                        : undefined
+                                >
+                                  <Icon
+                                    iconName={
+                                      this.state.favoriteRepoIds.has(
+                                        repo.id || ""
+                                      )
+                                        ? "FavoriteStarFill"
+                                        : "FavoriteStar"
                                     }
-                                  >
-                                    <Icon
-                                      iconName={this.getBuildStatusIcon(
-                                        buildStatuses[repo.id].status,
-                                        buildStatuses[repo.id].result
-                                      )}
-                                      style={{ fontSize: "10px" }}
-                                    />
-                                    {buildStatuses[repo.id].isLoading
-                                      ? "Loading..."
-                                      : this.getBuildStatusText(
-                                          buildStatuses[repo.id].status,
-                                          buildStatuses[repo.id].result
-                                        )}
-                                    {buildStatuses[repo.id].buildNumber && (
-                                      <span
-                                        style={{
-                                          fontSize: "9px",
-                                          opacity: 0.7,
-                                        }}
-                                      >
-                                        #{buildStatuses[repo.id].buildNumber}
-                                      </span>
-                                    )}
-                                  </span>
-                                </>
-                              )}
+                                    style={{
+                                      color: this.state.favoriteRepoIds.has(
+                                        repo.id || ""
+                                      )
+                                        ? "#ffb900"
+                                        : "#666",
+                                      fontSize: "14px",
+                                      transition: "color 0.2s ease",
+                                    }}
+                                  />
+                                </span>
+                              </div>
+                              <div
+                                className="body-small"
+                                style={{
+                                  color: "#666",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "12px",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <span>
+                                  Default Branch:{" "}
+                                  {repo.defaultBranch?.replace(
+                                    "refs/heads/",
+                                    ""
+                                  ) || "None"}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                          }}
-                        >
-                          {/* Individual Pipeline Trigger Button */}
-                          {repo.id && buildStatuses[repo.id]?.definitionId && (
-                            <Button
-                              text={
-                                triggeringRepoIds.has(repo.id)
-                                  ? "Triggering..."
-                                  : "Trigger"
-                              }
-                              iconProps={{
-                                iconName: triggeringRepoIds.has(repo.id)
-                                  ? "Sync"
-                                  : "Play",
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                this.triggerPipeline(
-                                  repo.id!,
-                                  buildStatuses[repo.id].definitionId!,
-                                  repo.name || "Unknown"
-                                );
-                              }}
-                              disabled={
-                                triggeringRepoIds.has(repo.id) ||
-                                isTriggeringPipelines
-                              }
-                              primary={false}
-                              subtle={true}
-                              tooltipProps={{
-                                text: `Trigger pipeline for ${repo.name} (${
-                                  buildStatuses[repo.id]?.definitionName ||
-                                  "Unknown pipeline"
-                                })`,
-                              }}
-                            />
-                          )}
-                        </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                            }}
+                          >
+                            {/* Individual Pipeline Trigger Button */}
+                            {repo.id &&
+                              buildStatuses[repo.id]?.definitionId && (
+                                <Button
+                                  text={
+                                    triggeringRepoIds.has(repo.id)
+                                      ? "Triggering..."
+                                      : "Trigger"
+                                  }
+                                  iconProps={{
+                                    iconName: triggeringRepoIds.has(repo.id)
+                                      ? "Sync"
+                                      : "Play",
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    this.triggerPipeline(
+                                      repo.id!,
+                                      buildStatuses[repo.id].definitionId!,
+                                      repo.name || "Unknown"
+                                    );
+                                  }}
+                                  disabled={
+                                    triggeringRepoIds.has(repo.id) ||
+                                    isTriggeringPipelines
+                                  }
+                                  primary={false}
+                                  subtle={true}
+                                  tooltipProps={{
+                                    text: `Trigger pipeline for ${repo.name} (${
+                                      buildStatuses[repo.id]?.definitionName ||
+                                      "Unknown pipeline"
+                                    })`,
+                                  }}
+                                />
+                              )}
+                          </div>
                         </div>
 
                         {/* Pipeline List - Indented under repository card */}
-                        {repo.id && buildStatuses[repo.id]?.pipelineDetails && buildStatuses[repo.id].pipelineDetails!.length > 0 && (
-                          <div
-                            style={{
-                              marginLeft: "40px",
-                              marginTop: "12px",
-                              marginBottom: "12px",
-                              backgroundColor: "#fafbfc",
-                              border: "1px solid #d0d7de",
-                              borderRadius: "6px",
-                              padding: "16px",
-                              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
-                            }}
-                          >
+                        {repo.id &&
+                          buildStatuses[repo.id]?.pipelineDetails &&
+                          buildStatuses[repo.id].pipelineDetails!.length >
+                            0 && (
                             <div
                               style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
+                                marginLeft: "40px",
+                                marginTop: "12px",
                                 marginBottom: "12px",
-                                paddingBottom: "8px",
-                                borderBottom: "1px solid #e1e4e8",
+                                backgroundColor: "#fafbfc",
+                                border: "1px solid #d0d7de",
+                                borderRadius: "6px",
+                                padding: "16px",
+                                boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
                               }}
                             >
-                              <Icon
-                                iconName="BuildDefinition"
-                                style={{ fontSize: "16px", color: "#0078d4" }}
-                              />
-                              <span
-                                className="body-small"
+                              <div
                                 style={{
-                                  fontWeight: "600",
-                                  color: "#24292f",
-                                  fontSize: "13px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  marginBottom: "12px",
+                                  paddingBottom: "8px",
+                                  borderBottom: "1px solid #e1e4e8",
                                 }}
                               >
-                                Pipelines ({buildStatuses[repo.id].pipelineDetails!.length})
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "8px",
-                              }}
-                            >
-                              {buildStatuses[repo.id].pipelineDetails!.map((pipeline, index) => {
-                                const timeAgo = pipeline.lastBuildTime 
-                                  ? this.getTimeAgo(new Date(pipeline.lastBuildTime))
-                                  : "Never";
-                                
-                                return (
-                                  <div
-                                    key={index}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: "12px",
-                                      padding: "12px 16px",
-                                      backgroundColor: "white",
-                                      borderRadius: "6px",
-                                      border: "1px solid #d0d7de",
-                                      transition: "all 0.2s ease",
-                                      cursor: "pointer",
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = "#f6f8fa";
-                                      e.currentTarget.style.borderColor = "#0078d4";
-                                      e.currentTarget.style.boxShadow = "0 2px 4px rgba(0, 120, 212, 0.1)";
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = "white";
-                                      e.currentTarget.style.borderColor = "#d0d7de";
-                                      e.currentTarget.style.boxShadow = "none";
-                                    }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      this.navigateToUrl(pipeline.url);
-                                    }}
-                                    title={`Click to open ${pipeline.name} pipeline`}
-                                  >
-                                    {/* Build Status Icon */}
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        width: "24px",
-                                        height: "24px",
-                                        borderRadius: "50%",
-                                        backgroundColor: this.getBuildStatusColor(pipeline.status, pipeline.result) + "20",
-                                      }}
-                                    >
-                                      <Icon
-                                        iconName={this.getBuildStatusIcon(pipeline.status, pipeline.result)}
-                                        style={{ 
-                                          fontSize: "14px", 
-                                          color: this.getBuildStatusColor(pipeline.status, pipeline.result) 
-                                        }}
-                                      />
-                                    </div>
-                                    
-                                    {/* Pipeline Info */}
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        flex: 1,
-                                        gap: "2px",
-                                      }}
-                                    >
-                                      {/* Pipeline Name */}
-                                      <span
-                                        style={{
-                                          color: "#0078d4",
-                                          fontSize: "13px",
-                                          fontWeight: "600",
-                                          lineHeight: "1.4",
-                                        }}
-                                      >
-                                        {pipeline.name}
-                                      </span>
-                                      
-                                      {/* Status and Time Row */}
+                                <Icon
+                                  iconName="BuildDefinition"
+                                  style={{ fontSize: "16px", color: "#0078d4" }}
+                                />
+                                <span
+                                  className="body-small"
+                                  style={{
+                                    fontWeight: "600",
+                                    color: "#24292f",
+                                    fontSize: "13px",
+                                  }}
+                                >
+                                  Pipelines (
+                                  {
+                                    buildStatuses[repo.id].pipelineDetails!
+                                      .length
+                                  }
+                                  )
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "8px",
+                                }}
+                              >
+                                {buildStatuses[repo.id].pipelineDetails!.map(
+                                  (pipeline, index) => {
+                                    const timeAgo = pipeline.lastBuildTime
+                                      ? this.getTimeAgo(
+                                          new Date(pipeline.lastBuildTime)
+                                        )
+                                      : "Never";
+
+                                    return (
                                       <div
+                                        key={index}
                                         style={{
                                           display: "flex",
                                           alignItems: "center",
-                                          gap: "8px",
+                                          gap: "12px",
+                                          padding: "12px 16px",
+                                          backgroundColor: "white",
+                                          borderRadius: "6px",
+                                          border: "1px solid #d0d7de",
+                                          transition: "all 0.2s ease",
+                                          cursor: "pointer",
                                         }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            "#f6f8fa";
+                                          e.currentTarget.style.borderColor =
+                                            "#0078d4";
+                                          e.currentTarget.style.boxShadow =
+                                            "0 2px 4px rgba(0, 120, 212, 0.1)";
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            "white";
+                                          e.currentTarget.style.borderColor =
+                                            "#d0d7de";
+                                          e.currentTarget.style.boxShadow =
+                                            "none";
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          this.navigateToUrl(pipeline.url);
+                                        }}
+                                        title={`Click to open ${pipeline.name} pipeline`}
                                       >
-                                        {/* Build Status Text */}
-                                        <span
+                                        {/* Build Status Icon */}
+                                        <div
                                           style={{
-                                            fontSize: "11px",
-                                            color: this.getBuildStatusColor(pipeline.status, pipeline.result),
-                                            fontWeight: "500",
-                                            backgroundColor: this.getBuildStatusColor(pipeline.status, pipeline.result) + "15",
-                                            padding: "2px 6px",
-                                            borderRadius: "3px",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            width: "24px",
+                                            height: "24px",
+                                            borderRadius: "50%",
+                                            backgroundColor:
+                                              this.getBuildStatusColor(
+                                                pipeline.status,
+                                                pipeline.result
+                                              ) + "20",
                                           }}
                                         >
-                                          {this.getBuildStatusText(pipeline.status, pipeline.result)}
-                                        </span>
+                                          <Icon
+                                            iconName={this.getBuildStatusIcon(
+                                              pipeline.status,
+                                              pipeline.result
+                                            )}
+                                            style={{
+                                              fontSize: "14px",
+                                              color: this.getBuildStatusColor(
+                                                pipeline.status,
+                                                pipeline.result
+                                              ),
+                                            }}
+                                          />
+                                        </div>
 
-                                        {/* Last Build Time */}
-                                        <span
+                                        {/* Pipeline Info */}
+                                        <div
                                           style={{
-                                            fontSize: "11px",
-                                            color: "#656d76",
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            flex: 1,
+                                            gap: "2px",
                                           }}
                                         >
-                                          {timeAgo}
-                                        </span>
-
-                                        {/* Build Number */}
-                                        {pipeline.buildNumber && (
+                                          {/* Pipeline Name */}
                                           <span
                                             style={{
-                                              fontSize: "10px",
-                                              color: "#656d76",
-                                              backgroundColor: "#f6f8fa",
-                                              padding: "2px 6px",
-                                              borderRadius: "3px",
-                                              fontFamily: "monospace",
+                                              color: "#0078d4",
+                                              fontSize: "13px",
+                                              fontWeight: "600",
+                                              lineHeight: "1.4",
                                             }}
                                           >
-                                            #{pipeline.buildNumber}
+                                            {pipeline.name}
+                                            {pipeline.isBuildPipeline && (
+                                              <Icon
+                                                iconName="Build"
+                                                title="Build pipeline"
+                                                style={{
+                                                  fontSize: "12px",
+                                                  color: "#0078d4",
+                                                  marginLeft: "6px",
+                                                  verticalAlign: "middle",
+                                                }}
+                                              />
+                                            )}
                                           </span>
-                                        )}
-                                      </div>
-                                    </div>
 
-                                    {/* Open Icon */}
-                                    <Icon
-                                      iconName="OpenInNewWindow"
-                                      style={{ 
-                                        fontSize: "12px", 
-                                        color: "#656d76",
-                                        opacity: 0.7,
-                                      }}
-                                    />
-                                  </div>
-                                );
-                              })}
+                                          {/* Status and Time Row */}
+                                          <div
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: "8px",
+                                            }}
+                                          >
+                                            {/* Build Status Text */}
+                                            <span
+                                              style={{
+                                                fontSize: "11px",
+                                                color: this.getBuildStatusColor(
+                                                  pipeline.status,
+                                                  pipeline.result
+                                                ),
+                                                fontWeight: "500",
+                                                backgroundColor:
+                                                  this.getBuildStatusColor(
+                                                    pipeline.status,
+                                                    pipeline.result
+                                                  ) + "15",
+                                                padding: "2px 6px",
+                                                borderRadius: "3px",
+                                              }}
+                                            >
+                                              {this.getBuildStatusText(
+                                                pipeline.status,
+                                                pipeline.result
+                                              )}
+                                            </span>
+
+                                            {/* Last Build Time */}
+                                            <span
+                                              style={{
+                                                fontSize: "11px",
+                                                color: "#656d76",
+                                              }}
+                                            >
+                                              {timeAgo}
+                                            </span>
+
+                                            {/* Build Number */}
+                                            {pipeline.buildNumber && (
+                                              <span
+                                                style={{
+                                                  fontSize: "10px",
+                                                  color: "#656d76",
+                                                  backgroundColor: "#f6f8fa",
+                                                  padding: "2px 6px",
+                                                  borderRadius: "3px",
+                                                  fontFamily: "monospace",
+                                                }}
+                                              >
+                                                #{pipeline.buildNumber}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Open Icon */}
+                                        <Icon
+                                          iconName="OpenInNewWindow"
+                                          style={{
+                                            fontSize: "12px",
+                                            color: "#656d76",
+                                            opacity: 0.7,
+                                          }}
+                                        />
+                                      </div>
+                                    );
+                                  }
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
                       </div>
                     ))}
                 </div>
