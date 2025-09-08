@@ -9,7 +9,7 @@ import {
   PolicyConfiguration,
 } from "azure-devops-extension-api/Policy";
 
-const EXTENSION_VERSION = "0.0.76";
+const EXTENSION_VERSION = "0.0.77";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -45,6 +45,7 @@ interface HomePageState {
   triggeringRepoIds: Set<string>;
   prBuildStatuses: Record<number, PullRequestBuildStatus>;
   loadingPRBuilds: boolean;
+  expandedPipelineRepos: Set<string>;
 }
 
 interface RepositoryBuildStatus {
@@ -224,6 +225,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       triggeringRepoIds: new Set<string>(),
       prBuildStatuses: {},
       loadingPRBuilds: false,
+      expandedPipelineRepos: new Set<string>(),
     };
   }
 
@@ -2140,7 +2142,10 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   gap: "8px",
                                 }}
                               >
-                                {buildStatuses[repo.id].pipelineDetails!.map(
+                                {(this.state.expandedPipelineRepos.has(repo.id!)
+                                  ? buildStatuses[repo.id].pipelineDetails!
+                                  : buildStatuses[repo.id].pipelineDetails!.slice(0, 3)
+                                ).map(
                                   (pipeline, index) => {
                                     const timeAgo = pipeline.lastBuildTime
                                       ? this.getTimeAgo(
@@ -2358,6 +2363,42 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       </div>
                                     );
                                   }
+                                )}
+                                {buildStatuses[repo.id].pipelineDetails!.length > 3 && (
+                                  <div
+                                    style={{
+                                      marginTop: "12px",
+                                      display: "flex",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    <Button
+                                      text={
+                                        this.state.expandedPipelineRepos.has(repo.id!)
+                                          ? "Show less"
+                                          : "Show more"
+                                      }
+                                      iconProps={{
+                                        iconName: this.state.expandedPipelineRepos.has(repo.id!)
+                                          ? "ChevronUp"
+                                          : "ChevronDown",
+                                      }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        this.setState((prevState) => {
+                                          const next = new Set(prevState.expandedPipelineRepos);
+                                          if (repo.id && next.has(repo.id)) {
+                                            next.delete(repo.id);
+                                          } else if (repo.id) {
+                                            next.add(repo.id);
+                                          }
+                                          return { expandedPipelineRepos: next } as any;
+                                        });
+                                      }}
+                                      primary={false}
+                                      subtle={true}
+                                    />
+                                  </div>
                                 )}
                               </div>
                             </div>
