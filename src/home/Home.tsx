@@ -9,7 +9,7 @@ import {
   PolicyConfiguration,
 } from "azure-devops-extension-api/Policy";
 
-const EXTENSION_VERSION = "0.0.73";
+const EXTENSION_VERSION = "0.0.75";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -525,13 +525,6 @@ export class HomePage extends React.Component<object, HomePageState> {
           repo.defaultBranch
         );
 
-        console.log(
-          "TEST-DEBUG",
-          repo.id,
-          repo.defaultBranch,
-          buildValidationPipelineId
-        );
-
         // Get detailed pipeline information including build status
         const pipelineDetails: PipelineDetail[] = [];
 
@@ -710,16 +703,23 @@ export class HomePage extends React.Component<object, HomePageState> {
         BUILD_POLICY_TYPE
       );
 
-    console.log("TEST-DEBUG", policies);
-
     const activePolicies = policies.filter((p) => {
       const settings: any = p.settings as any;
-      const policyScope = settings?.scope;
-      const matchesRepo = policyScope?.repositoryId === repoId;
-      const matchesRef = policyScope?.refName === refName;
-      return (
-        p.isEnabled && p.isBlocking && !p.isDeleted && matchesRepo && matchesRef
-      );
+      const scopes: any[] = Array.isArray(settings?.scope)
+        ? (settings.scope as any[])
+        : settings?.scope
+        ? [settings.scope]
+        : [];
+
+      const hasMatch = scopes.some((s: any) => {
+        const scopeRepoId = s?.repositoryId;
+        const scopeRefName = s?.refName;
+        const repoMatch = scopeRepoId === repoId;
+        const refMatch = scopeRefName === refName;
+        return repoMatch && refMatch;
+      });
+
+      return p.isEnabled && p.isBlocking && !p.isDeleted && hasMatch;
     });
 
     let buildPipelineId: number | undefined;
@@ -2359,16 +2359,31 @@ export class HomePage extends React.Component<object, HomePageState> {
                                           >
                                             {pipeline.name}
                                             {pipeline.isBuildPipeline && (
-                                              <Icon
-                                                iconName="Build"
-                                                title="Build pipeline"
+                                              <span
+                                                className="body-xsmall"
                                                 style={{
-                                                  fontSize: "12px",
-                                                  color: "#0078d4",
-                                                  marginLeft: "6px",
-                                                  verticalAlign: "middle",
+                                                  display: "inline-flex",
+                                                  alignItems: "center",
+                                                  gap: "4px",
+                                                  marginLeft: "8px",
+                                                  padding: "2px 6px",
+                                                  borderRadius: "10px",
+                                                  backgroundColor: "#E6F2FB",
+                                                  border: "1px solid #B3D8F5",
+                                                  color: "#106EBE",
+                                                  fontWeight: 600,
                                                 }}
-                                              />
+                                                title="Build validation pipeline"
+                                              >
+                                                <Icon
+                                                  iconName="Shield"
+                                                  style={{
+                                                    fontSize: "12px",
+                                                    color: "#106EBE",
+                                                  }}
+                                                />
+                                                Build validation
+                                              </span>
                                             )}
                                           </span>
 
