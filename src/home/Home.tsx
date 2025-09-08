@@ -9,7 +9,7 @@ import {
   PolicyConfiguration,
 } from "azure-devops-extension-api/Policy";
 
-const EXTENSION_VERSION = "0.0.72";
+const EXTENSION_VERSION = "0.0.73";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -525,7 +525,12 @@ export class HomePage extends React.Component<object, HomePageState> {
           repo.defaultBranch
         );
 
-        console.log("TEST-DEBUG", repo.id, repo.defaultBranch, buildValidationPipelineId);
+        console.log(
+          "TEST-DEBUG",
+          repo.id,
+          repo.defaultBranch,
+          buildValidationPipelineId
+        );
 
         // Get detailed pipeline information including build status
         const pipelineDetails: PipelineDetail[] = [];
@@ -698,21 +703,24 @@ export class HomePage extends React.Component<object, HomePageState> {
 
     const BUILD_POLICY_TYPE = "0609b952-1397-4640-95ec-e00a01b2c241";
 
-    const scope = JSON.stringify({
-      repositoryId: repoId,
-      refName: refName,
-    });
-
     const policies: PolicyConfiguration[] =
       await policyClient.getPolicyConfigurations(
         projectName,
-        scope,
+        undefined,
         BUILD_POLICY_TYPE
       );
 
-    const activePolicies = policies.filter(
-      (p) => p.isEnabled && p.isBlocking && !p.isDeleted
-    );
+    console.log("TEST-DEBUG", policies);
+
+    const activePolicies = policies.filter((p) => {
+      const settings: any = p.settings as any;
+      const policyScope = settings?.scope;
+      const matchesRepo = policyScope?.repositoryId === repoId;
+      const matchesRef = policyScope?.refName === refName;
+      return (
+        p.isEnabled && p.isBlocking && !p.isDeleted && matchesRepo && matchesRef
+      );
+    });
 
     let buildPipelineId: number | undefined;
 
