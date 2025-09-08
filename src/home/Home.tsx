@@ -9,7 +9,7 @@ import {
   PolicyConfiguration,
 } from "azure-devops-extension-api/Policy";
 
-const EXTENSION_VERSION = "0.0.75";
+const EXTENSION_VERSION = "0.0.76";
 const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
@@ -1873,87 +1873,6 @@ export class HomePage extends React.Component<object, HomePageState> {
 
           {selectedTabId === "repositories" && (
             <div>
-              {/* Batch Controls */}
-              {!loading && !error && repos.length > 0 && (
-                <div
-                  style={{
-                    backgroundColor: "white",
-                    border: "1px solid #e1e1e1",
-                    borderRadius: "6px",
-                    padding: "16px 20px",
-                    marginBottom: "16px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    flexWrap: "wrap",
-                    gap: "12px",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                    }}
-                  >
-                    <span
-                      className="body-medium"
-                      style={{ color: "#323130", fontWeight: "600" }}
-                    >
-                      Pipeline Controls:
-                    </span>
-                    <span className="body-small" style={{ color: "#666" }}>
-                      {selectedRepoIds.size} of{" "}
-                      {
-                        repos.filter(
-                          (repo) =>
-                            repo.id && buildStatuses[repo.id]?.definitionId
-                        ).length
-                      }{" "}
-                      selected
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <Button
-                      text="Select All"
-                      iconProps={{ iconName: "CheckboxComposite" }}
-                      onClick={this.selectAllRepos}
-                      disabled={isTriggeringPipelines}
-                      subtle={true}
-                    />
-                    <Button
-                      text="Clear"
-                      iconProps={{ iconName: "Clear" }}
-                      onClick={this.clearRepoSelection}
-                      disabled={
-                        isTriggeringPipelines || selectedRepoIds.size === 0
-                      }
-                      subtle={true}
-                    />
-                    <Button
-                      text={
-                        isTriggeringPipelines
-                          ? "Triggering..."
-                          : `Trigger Selected (${selectedRepoIds.size})`
-                      }
-                      iconProps={{
-                        iconName: isTriggeringPipelines ? "Sync" : "Play",
-                      }}
-                      onClick={this.triggerSelectedPipelines}
-                      disabled={
-                        isTriggeringPipelines || selectedRepoIds.size === 0
-                      }
-                      primary={true}
-                    />
-                  </div>
-                </div>
-              )}
 
               {loading && (
                 <div
@@ -2164,50 +2083,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                             </div>
                           </div>
 
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "8px",
-                            }}
-                          >
-                            {/* Individual Pipeline Trigger Button */}
-                            {repo.id &&
-                              buildStatuses[repo.id]?.definitionId && (
-                                <Button
-                                  text={
-                                    triggeringRepoIds.has(repo.id)
-                                      ? "Triggering..."
-                                      : "Trigger"
-                                  }
-                                  iconProps={{
-                                    iconName: triggeringRepoIds.has(repo.id)
-                                      ? "Sync"
-                                      : "Play",
-                                  }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    this.triggerPipeline(
-                                      repo.id!,
-                                      buildStatuses[repo.id].definitionId!,
-                                      repo.name || "Unknown"
-                                    );
-                                  }}
-                                  disabled={
-                                    triggeringRepoIds.has(repo.id) ||
-                                    isTriggeringPipelines
-                                  }
-                                  primary={false}
-                                  subtle={true}
-                                  tooltipProps={{
-                                    text: `Trigger pipeline for ${repo.name} (${
-                                      buildStatuses[repo.id]?.definitionName ||
-                                      "Unknown pipeline"
-                                    })`,
-                                  }}
-                                />
-                              )}
-                          </div>
+                          <div />
                         </div>
 
                         {/* Pipeline List - Indented under repository card */}
@@ -2447,15 +2323,38 @@ export class HomePage extends React.Component<object, HomePageState> {
                                           </div>
                                         </div>
 
-                                        {/* Open Icon */}
-                                        <Icon
-                                          iconName="OpenInNewWindow"
+                                        {/* Actions */}
+                                        <div
                                           style={{
-                                            fontSize: "12px",
-                                            color: "#656d76",
-                                            opacity: 0.7,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "8px",
                                           }}
-                                        />
+                                        >
+                                          <Button
+                                            text="Trigger"
+                                            iconProps={{ iconName: "Play" }}
+                                            subtle={true}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (repo.id) {
+                                                this.triggerPipeline(
+                                                  repo.id,
+                                                  pipeline.definitionId,
+                                                  repo.name || "Unknown"
+                                                );
+                                              }
+                                            }}
+                                          />
+                                          <Icon
+                                            iconName="OpenInNewWindow"
+                                            style={{
+                                              fontSize: "12px",
+                                              color: "#656d76",
+                                              opacity: 0.7,
+                                            }}
+                                          />
+                                        </div>
                                       </div>
                                     );
                                   }
