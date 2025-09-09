@@ -9,14 +9,11 @@ import {
   PolicyConfiguration,
 } from "azure-devops-extension-api/Policy";
 
-const EXTENSION_VERSION = "0.0.83";
-const EXTENSION_NAME = "Repo Pulse";
 import {
   GitRestClient,
   GitRepository,
   GitPullRequest,
   PullRequestStatus,
-  GitPullRequestSearchCriteria,
 } from "azure-devops-extension-api/Git";
 import {
   BuildRestClient,
@@ -1806,26 +1803,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                               flex: 1,
                             }}
                           >
-                            {/* Checkbox for selection (only show if repo has a pipeline) */}
-                            {repo.id &&
-                              buildStatuses[repo.id]?.definitionId && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedRepoIds.has(repo.id)}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    this.toggleRepoSelection(repo.id!);
-                                  }}
-                                  style={{
-                                    width: "16px",
-                                    height: "16px",
-                                    cursor: "pointer",
-                                    accentColor: "#0078d4",
-                                  }}
-                                  disabled={isTriggeringPipelines}
-                                />
-                              )}
-
                             <div
                               className="body-medium"
                               style={{
@@ -3030,30 +3007,6 @@ export class HomePage extends React.Component<object, HomePageState> {
               )}
             </div>
           )}
-        </div>
-
-        {/* Version Badge */}
-        <div
-          style={{
-            position: "fixed",
-            bottom: "16px",
-            right: "16px",
-            backgroundColor: "rgba(0, 120, 212, 0.9)",
-            color: "white",
-            padding: "6px 12px",
-            borderRadius: "16px",
-            fontSize: "12px",
-            fontWeight: "600",
-            zIndex: 1000,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-          }}
-          title={`${EXTENSION_NAME} v${EXTENSION_VERSION}`}
-        >
-          <Icon iconName="Info" style={{ fontSize: "10px" }} />v
-          {EXTENSION_VERSION}
         </div>
       </div>
     );
