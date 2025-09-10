@@ -76,6 +76,7 @@ interface PipelineDetail {
   buildId?: number;
   isBuildPipeline?: boolean;
   folderPath?: string;
+  yamlPath?: string;
 }
 
 interface PullRequestBuildStatus {
@@ -583,6 +584,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               buildId: latestBuild?.id,
               isBuildPipeline: def.id === buildValidationPipelineId,
               folderPath: def.path,
+              yamlPath: (def.process as any)?.yamlFilename,
             });
           } catch (error) {
             console.warn(
@@ -596,6 +598,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               definitionId: def.id,
               status: BuildStatus.None,
               folderPath: def.path,
+              yamlPath: (def.process as any)?.yamlFilename,
             });
           }
         }
@@ -2203,6 +2206,38 @@ export class HomePage extends React.Component<object, HomePageState> {
                                               gap: "8px",
                                             }}
                                           >
+                                            {/* YAML file link */}
+                                            {pipeline.yamlPath && (
+                                              <span
+                                                style={{
+                                                  fontSize: "11px",
+                                                  color: "#666",
+                                                  backgroundColor: "#f6f8fa",
+                                                  padding: "2px 6px",
+                                                  borderRadius: "3px",
+                                                  cursor: "pointer",
+                                                }}
+                                                title={`Open ${pipeline.yamlPath} in default branch`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const repoDefault = repo.defaultBranch?.replace(
+                                                    "refs/heads/",
+                                                    ""
+                                                  ) || "master";
+                                                  const project = this.getProjectInfo()?.name;
+                                                  if (project && repo.name) {
+                                                    const url = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${project}/_git/${repo.name}?path=${encodeURIComponent(
+                                                      "/" + pipeline.yamlPath || ""
+                                                    )}&version=GB${encodeURIComponent(
+                                                      repoDefault
+                                                    )}&_a=contents`;
+                                                    this.navigateToUrl(url);
+                                                  }
+                                                }}
+                                              >
+                                                {pipeline.yamlPath}
+                                              </span>
+                                            )}
                                             {/* Build Status Text */}
                                             <span
                                               style={{
