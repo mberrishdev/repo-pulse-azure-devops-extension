@@ -1767,9 +1767,10 @@ export class HomePage extends React.Component<object, HomePageState> {
               {!loading && !error && (
                 <div
                   style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "8px",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: "12px",
+                    alignItems: "start",
                   }}
                 >
                   {repos
