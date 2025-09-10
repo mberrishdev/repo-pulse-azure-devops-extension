@@ -73,6 +73,7 @@ interface PipelineDetail {
   buildNumber?: string;
   buildId?: number;
   isBuildPipeline?: boolean;
+  folderPath?: string;
 }
 
 interface PullRequestBuildStatus {
@@ -564,6 +565,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               buildNumber: latestBuild?.buildNumber,
               buildId: latestBuild?.id,
               isBuildPipeline: def.id === buildValidationPipelineId,
+              folderPath: def.path,
             });
           } catch (error) {
             console.warn(
@@ -576,6 +578,7 @@ export class HomePage extends React.Component<object, HomePageState> {
               url: `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`,
               definitionId: def.id,
               status: BuildStatus.None,
+              folderPath: def.path,
             });
           }
         }
@@ -2077,6 +2080,20 @@ export class HomePage extends React.Component<object, HomePageState> {
                                           }}
                                         >
                                           {pipeline.name}
+                                          {pipeline.folderPath && pipeline.folderPath !== "\\" && (
+                                            <span
+                                              className="body-xsmall"
+                                              style={{
+                                                display: "inline-block",
+                                                marginLeft: "8px",
+                                                color: "#666",
+                                                fontWeight: "400",
+                                                fontSize: "11px",
+                                              }}
+                                            >
+                                              ({pipeline.folderPath.replace(/\\/g, " / ")})
+                                            </span>
+                                          )}
                                           {pipeline.isBuildPipeline && (
                                             <span
                                               className="body-xsmall"
