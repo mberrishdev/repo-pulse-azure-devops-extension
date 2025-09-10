@@ -46,6 +46,8 @@ interface HomePageState {
   reviewPR: GitPullRequest | null;
   hasAcknowledgedReview: boolean;
   isReviewLoading: boolean;
+  repoSearch?: string;
+  isDarkMode?: boolean;
 }
 
 interface RepositoryBuildStatus {
@@ -228,6 +230,10 @@ export class HomePage extends React.Component<object, HomePageState> {
       reviewPR: null,
       hasAcknowledgedReview: false,
       isReviewLoading: false,
+      repoSearch: "",
+      isDarkMode:
+        window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches,
     };
   }
 
@@ -247,6 +253,17 @@ export class HomePage extends React.Component<object, HomePageState> {
       await this.loadFavoriteRepositories();
       await this.loadRepositories();
       await this.loadPullRequests();
+
+      // Listen to dark mode preference changes
+      if (window.matchMedia) {
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const handler = (e: MediaQueryListEvent) =>
+          this.setState({ isDarkMode: e.matches });
+        // Safari<br/>
+        // @ts-ignore
+        if (mql.addEventListener) mql.addEventListener("change", handler);
+        else if (mql.addListener) mql.addListener(handler);
+      }
     } catch (error) {
       console.error("Extension initialization failed:", error);
       await this.showToast("Failed to initialize extension", "error");
@@ -1645,15 +1662,6 @@ export class HomePage extends React.Component<object, HomePageState> {
         newFavoriteRepoIds
       );
       this.setState({ repos: sortedRepos });
-
-      const repoName =
-        this.state.repos.find((r) => r.id === repoId)?.name || "Repository";
-      await this.showToast(
-        `${repoName} ${
-          isCurrentlyFavorite ? "removed from" : "added to"
-        } favorites`,
-        "success"
-      );
     } catch (error) {
       console.error("Failed to toggle favorite:", error);
       await this.showToast("Failed to update favorite status", "error");
@@ -1676,11 +1684,26 @@ export class HomePage extends React.Component<object, HomePageState> {
       loadingPRBuilds,
     } = this.state;
 
+    const isDark = !!this.state.isDarkMode;
+    const colors = {
+      bg: isDark ? "#0f172a" : "#f8f9fa",
+      surface: isDark ? "#111827" : "#ffffff",
+      border: isDark ? "#1f2937" : "#e1e1e1",
+      subBorder: isDark ? "#243244" : "#d0d7de",
+      text: isDark ? "#e5e7eb" : "#323130",
+      subText: isDark ? "#9ca3af" : "#666",
+      link: isDark ? "#60a5fa" : "#0078d4",
+      cardHoverBorder: isDark ? "#2563eb" : "#0078d4",
+      pipelineBg: isDark ? "#0b1220" : "#fafbfc",
+      badgeBg: isDark ? "#0b1220" : "#f6f8fa",
+      modalOverlay: "rgba(0,0,0,0.6)",
+    } as const;
+
     return (
       <div
         style={{
           width: "100%",
-          backgroundColor: "#f8f9fa",
+          backgroundColor: colors.bg,
           minHeight: "100vh",
         }}
       >
@@ -1688,7 +1711,7 @@ export class HomePage extends React.Component<object, HomePageState> {
           {/* Tab Navigation */}
           <div
             style={{
-              borderBottom: "1px solid #e1e1e1",
+              borderBottom: `1px solid ${colors.border}`,
               marginBottom: "24px",
               display: "flex",
               gap: "0",
@@ -1701,11 +1724,14 @@ export class HomePage extends React.Component<object, HomePageState> {
                 border: "none",
                 background:
                   selectedTabId === "repositories" ? "white" : "transparent",
-                color: selectedTabId === "repositories" ? "#0078d4" : "#666",
+                color:
+                  selectedTabId === "repositories"
+                    ? colors.link
+                    : colors.subText,
                 cursor: "pointer",
                 borderBottom:
                   selectedTabId === "repositories"
-                    ? "2px solid #0078d4"
+                    ? `2px solid ${colors.link}`
                     : "2px solid transparent",
                 fontWeight: selectedTabId === "repositories" ? "600" : "400",
               }}
@@ -1720,11 +1746,14 @@ export class HomePage extends React.Component<object, HomePageState> {
                 border: "none",
                 background:
                   selectedTabId === "pullrequests" ? "white" : "transparent",
-                color: selectedTabId === "pullrequests" ? "#0078d4" : "#666",
+                color:
+                  selectedTabId === "pullrequests"
+                    ? colors.link
+                    : colors.subText,
                 cursor: "pointer",
                 borderBottom:
                   selectedTabId === "pullrequests"
-                    ? "2px solid #0078d4"
+                    ? `2px solid ${colors.link}`
                     : "2px solid transparent",
                 fontWeight: selectedTabId === "pullrequests" ? "600" : "400",
               }}
@@ -1742,7 +1771,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                   style={{
                     textAlign: "center",
                     padding: "40px",
-                    color: "#666",
+                    color: colors.subText,
                   }}
                 >
                   Loading repositories...
@@ -1765,366 +1794,469 @@ export class HomePage extends React.Component<object, HomePageState> {
               )}
 
               {!loading && !error && (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                    gap: "12px",
-                    alignItems: "start",
-                  }}
-                >
-                  {repos
-                    .filter((repo) => repo && repo.id)
-                    .map((repo) => (
-                      <div key={repo.id}>
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <input
+                      type="text"
+                      placeholder="Search repositories..."
+                      value={this.state.repoSearch}
+                      onChange={(e) =>
+                        this.setState({ repoSearch: e.currentTarget.value })
+                      }
+                      style={{
+                        width: "100%",
+                        maxWidth: "420px",
+                        padding: "8px 12px",
+                        border: `1px solid ${colors.subBorder}`,
+                        borderRadius: "6px",
+                        outline: "none",
+                        fontSize: "13px",
+                        backgroundColor: colors.surface,
+                        color: colors.text,
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: "12px",
+                      alignItems: "start",
+                    }}
+                  >
+                    {repos
+                      .filter((repo) => repo && repo.id)
+                      .filter((repo) =>
+                        (this.state.repoSearch || "").trim().length === 0
+                          ? true
+                          : (repo.name || "")
+                              .toLowerCase()
+                              .includes(this.state.repoSearch!.toLowerCase())
+                      )
+                      .map((repo) => (
                         <div
+                          key={repo.id}
                           style={{
-                            backgroundColor: "white",
-                            border: "1px solid #e1e1e1",
+                            backgroundColor: colors.surface,
+                            border: `1px solid ${colors.border}`,
                             borderRadius: "6px",
                             padding: "16px 20px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
                             transition:
                               "box-shadow 0.2s ease, border-color 0.2s ease",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.boxShadow =
-                              "0 2px 8px rgba(0,0,0,0.1)";
-                            e.currentTarget.style.borderColor = "#0078d4";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.boxShadow = "none";
-                            e.currentTarget.style.borderColor = "#e1e1e1";
                           }}
                         >
                           <div
                             style={{
+                              backgroundColor: colors.surface,
+                              border: `1px solid ${colors.border}`,
+                              borderRadius: "6px",
+                              padding: "16px 20px",
                               display: "flex",
                               alignItems: "center",
-                              gap: "16px",
-                              flex: 1,
+                              justifyContent: "space-between",
+                              transition:
+                                "box-shadow 0.2s ease, border-color 0.2s ease",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.boxShadow =
+                                "0 2px 8px rgba(0,0,0,0.1)";
+                              e.currentTarget.style.borderColor =
+                                colors.cardHoverBorder;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.boxShadow = "none";
+                              e.currentTarget.style.borderColor = colors.border;
                             }}
                           >
                             <div
-                              className="body-medium"
                               style={{
-                                width: "32px",
-                                height: "32px",
-                                borderRadius: "50%",
-                                backgroundColor: "#0078d4",
                                 display: "flex",
                                 alignItems: "center",
-                                justifyContent: "center",
-                                color: "white",
-                                fontWeight: "600",
+                                gap: "16px",
+                                flex: 1,
                               }}
                             >
-                              {repo.name.charAt(0).toUpperCase()}
-                            </div>
-
-                            <div style={{ flex: 1 }}>
-                              <div
-                                className="title-small"
-                                style={{
-                                  color: "#323130",
-                                  marginBottom: "4px",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "8px",
-                                }}
-                              >
-                                <span
+                              <div style={{ flex: 1 }}>
+                                <div
+                                  className="title-small"
                                   style={{
-                                    cursor: "pointer",
-                                    color: "#0078d4",
-                                    textDecoration: "none",
-                                    transition: "color 0.2s ease",
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.textDecoration =
-                                      "underline";
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.textDecoration =
-                                      "none";
-                                  }}
-                                  onClick={() => this.openRepository(repo)}
-                                  title={`Click to open ${repo.name} repository`}
-                                >
-                                  {repo.name}
-                                </span>
-                                <span
-                                  style={{
-                                    cursor: "pointer",
-                                    padding: "4px",
-                                    borderRadius: "4px",
-                                    display: "inline-flex",
+                                    color: colors.text,
+                                    marginBottom: "4px",
+                                    display: "flex",
                                     alignItems: "center",
-                                    justifyContent: "center",
-                                    transition: "background-color 0.2s ease",
+                                    gap: "8px",
                                   }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    this.toggleFavorite(repo.id || "");
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor =
-                                      "rgba(0, 120, 212, 0.1)";
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor =
-                                      "transparent";
-                                  }}
-                                  title={
-                                    this.state.favoriteRepoIds.has(
-                                      repo.id || ""
-                                    )
-                                      ? `Remove ${repo.name} from favorites`
-                                      : `Add ${repo.name} to favorites`
-                                  }
                                 >
-                                  <Icon
-                                    iconName={
+                                  <span
+                                    style={{
+                                      cursor: "pointer",
+                                      color: colors.link,
+                                      textDecoration: "none",
+                                      transition: "color 0.2s ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.textDecoration =
+                                        "underline";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.textDecoration =
+                                        "none";
+                                    }}
+                                    onClick={() => this.openRepository(repo)}
+                                    title={`Click to open ${repo.name} repository`}
+                                  >
+                                    {repo.name}
+                                  </span>
+                                  <span
+                                    style={{
+                                      cursor: "pointer",
+                                      padding: "4px",
+                                      borderRadius: "4px",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      transition: "background-color 0.2s ease",
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      this.toggleFavorite(repo.id || "");
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.backgroundColor =
+                                        "rgba(0, 120, 212, 0.1)";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.backgroundColor =
+                                        "transparent";
+                                    }}
+                                    title={
                                       this.state.favoriteRepoIds.has(
                                         repo.id || ""
                                       )
-                                        ? "FavoriteStarFill"
-                                        : "FavoriteStar"
+                                        ? `Remove ${repo.name} from favorites`
+                                        : `Add ${repo.name} to favorites`
                                     }
-                                    style={{
-                                      color: this.state.favoriteRepoIds.has(
-                                        repo.id || ""
-                                      )
-                                        ? "#ffb900"
-                                        : "#666",
-                                      fontSize: "14px",
-                                      transition: "color 0.2s ease",
-                                    }}
-                                  />
-                                </span>
-                              </div>
-                              <div
-                                className="body-small"
-                                style={{
-                                  color: "#666",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "12px",
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                <span>
-                                  Default Branch:{" "}
-                                  {repo.defaultBranch?.replace(
-                                    "refs/heads/",
-                                    ""
-                                  ) || "None"}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div />
-                        </div>
-
-                        {/* Pipeline List - Indented under repository card */}
-                        {repo.id &&
-                          buildStatuses[repo.id]?.pipelineDetails &&
-                          buildStatuses[repo.id].pipelineDetails!.length >
-                            0 && (
-                            <div
-                              style={{
-                                marginLeft: "40px",
-                                marginTop: "12px",
-                                marginBottom: "12px",
-                                backgroundColor: "#fafbfc",
-                                border: "1px solid #d0d7de",
-                                borderRadius: "6px",
-                                padding: "16px",
-                                boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "8px",
-                                  marginBottom: "12px",
-                                  paddingBottom: "8px",
-                                  borderBottom: "1px solid #e1e4e8",
-                                }}
-                              >
-                                <Icon
-                                  iconName="BuildDefinition"
-                                  style={{ fontSize: "16px", color: "#0078d4" }}
-                                />
-                                <span
+                                  >
+                                    <Icon
+                                      iconName={
+                                        this.state.favoriteRepoIds.has(
+                                          repo.id || ""
+                                        )
+                                          ? "FavoriteStarFill"
+                                          : "FavoriteStar"
+                                      }
+                                      style={{
+                                        color: this.state.favoriteRepoIds.has(
+                                          repo.id || ""
+                                        )
+                                          ? "#ffb900"
+                                          : colors.subText,
+                                        fontSize: "14px",
+                                        transition: "color 0.2s ease",
+                                      }}
+                                    />
+                                  </span>
+                                </div>
+                                <div
                                   className="body-small"
                                   style={{
-                                    fontWeight: "600",
-                                    color: "#24292f",
-                                    fontSize: "13px",
+                                    color: colors.subText,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "12px",
+                                    flexWrap: "wrap",
                                   }}
                                 >
-                                  Pipelines (
-                                  {
-                                    buildStatuses[repo.id].pipelineDetails!
-                                      .length
-                                  }
-                                  )
-                                </span>
+                                  <span>
+                                    Default Branch:{" "}
+                                    {repo.defaultBranch?.replace(
+                                      "refs/heads/",
+                                      ""
+                                    ) || "None"}
+                                  </span>
+                                </div>
                               </div>
+                            </div>
+
+                            <div />
+                          </div>
+
+                          {/* Pipeline List - Indented under repository card */}
+                          {repo.id &&
+                            buildStatuses[repo.id]?.pipelineDetails &&
+                            buildStatuses[repo.id].pipelineDetails!.length >
+                              0 && (
                               <div
                                 style={{
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: "8px",
+                                  // marginLeft: "40px",
+                                  marginTop: "12px",
+                                  marginBottom: "12px",
+                                  backgroundColor: colors.pipelineBg,
+                                  border: `1px solid ${colors.subBorder}`,
+                                  borderRadius: "6px",
+                                  padding: "16px",
+                                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
                                 }}
                               >
-                                {(this.state.expandedPipelineRepos.has(repo.id!)
-                                  ? buildStatuses[repo.id].pipelineDetails!
-                                  : buildStatuses[
-                                      repo.id
-                                    ].pipelineDetails!.slice(0, 3)
-                                ).map((pipeline, index) => {
-                                  const timeAgo = pipeline.lastBuildTime
-                                    ? this.getTimeAgo(
-                                        new Date(pipeline.lastBuildTime)
-                                      )
-                                    : "Never";
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                    marginBottom: "12px",
+                                    paddingBottom: "8px",
+                                    borderBottom: "1px solid #e1e4e8",
+                                  }}
+                                >
+                                  <Icon
+                                    iconName="BuildDefinition"
+                                    style={{
+                                      fontSize: "16px",
+                                      color: colors.link,
+                                    }}
+                                  />
+                                  <span
+                                    className="body-small"
+                                    style={{
+                                      fontWeight: "600",
+                                      color: colors.text,
+                                      fontSize: "13px",
+                                    }}
+                                  >
+                                    Pipelines (
+                                    {
+                                      buildStatuses[repo.id].pipelineDetails!
+                                        .length
+                                    }
+                                    )
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "8px",
+                                  }}
+                                >
+                                  {(this.state.expandedPipelineRepos.has(
+                                    repo.id!
+                                  )
+                                    ? buildStatuses[repo.id].pipelineDetails!
+                                    : buildStatuses[
+                                        repo.id
+                                      ].pipelineDetails!.slice(0, 3)
+                                  ).map((pipeline, index) => {
+                                    const timeAgo = pipeline.lastBuildTime
+                                      ? this.getTimeAgo(
+                                          new Date(pipeline.lastBuildTime)
+                                        )
+                                      : "Never";
 
-                                  return (
-                                    <div
-                                      key={index}
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "12px",
-                                        padding: "12px 16px",
-                                        backgroundColor: "white",
-                                        borderRadius: "6px",
-                                        border: "1px solid #d0d7de",
-                                        transition: "all 0.2s ease",
-                                        cursor: "pointer",
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor =
-                                          "#f6f8fa";
-                                        e.currentTarget.style.borderColor =
-                                          "#0078d4";
-                                        e.currentTarget.style.boxShadow =
-                                          "0 2px 4px rgba(0, 120, 212, 0.1)";
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor =
-                                          "white";
-                                        e.currentTarget.style.borderColor =
-                                          "#d0d7de";
-                                        e.currentTarget.style.boxShadow =
-                                          "none";
-                                      }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        this.navigateToUrl(pipeline.url);
-                                      }}
-                                      title={`Click to open ${pipeline.name} pipeline`}
-                                    >
-                                      {/* Build Status Icon */}
+                                    return (
                                       <div
+                                        key={index}
                                         style={{
                                           display: "flex",
                                           alignItems: "center",
-                                          justifyContent: "center",
-                                          width: "24px",
-                                          height: "24px",
-                                          borderRadius: "50%",
-                                          backgroundColor:
-                                            this.getBuildStatusColor(
-                                              pipeline.status,
-                                              pipeline.result
-                                            ) + "20",
+                                          gap: "12px",
+                                          padding: "12px 16px",
+                                          backgroundColor: colors.surface,
+                                          borderRadius: "6px",
+                                          border: `1px solid ${colors.subBorder}`,
+                                          transition: "all 0.2s ease",
+                                          cursor: "pointer",
                                         }}
-                                      >
-                                        <Icon
-                                          iconName={this.getBuildStatusIcon(
-                                            pipeline.status,
-                                            pipeline.result
-                                          )}
-                                          style={{
-                                            fontSize: "14px",
-                                            color: this.getBuildStatusColor(
-                                              pipeline.status,
-                                              pipeline.result
-                                            ),
-                                          }}
-                                        />
-                                      </div>
-
-                                      {/* Pipeline Info */}
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          flexDirection: "column",
-                                          flex: 1,
-                                          gap: "2px",
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            "#f6f8fa";
+                                          e.currentTarget.style.borderColor =
+                                            "#0078d4";
+                                          e.currentTarget.style.boxShadow =
+                                            "0 2px 4px rgba(0, 120, 212, 0.1)";
                                         }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor =
+                                            colors.surface;
+                                          e.currentTarget.style.borderColor =
+                                            colors.subBorder;
+                                          e.currentTarget.style.boxShadow =
+                                            "none";
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          this.navigateToUrl(pipeline.url);
+                                        }}
+                                        title={`Click to open ${pipeline.name} pipeline`}
                                       >
-                                        {/* Pipeline Name */}
-                                        <span
+                                        {/* Build Status Icon */}
+                                        <div
                                           style={{
-                                            color: "#0078d4",
-                                            fontSize: "13px",
-                                            fontWeight: "600",
-                                            lineHeight: "1.4",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            width: "24px",
+                                            height: "24px",
+                                            borderRadius: "50%",
+                                            backgroundColor:
+                                              this.getBuildStatusColor(
+                                                pipeline.status,
+                                                pipeline.result
+                                              ) + "20",
                                           }}
                                         >
-                                          {pipeline.name}
-                                          {pipeline.folderPath && pipeline.folderPath !== "\\" && (
-                                            <span
-                                              className="body-xsmall"
-                                              style={{
-                                                display: "inline-block",
-                                                marginLeft: "8px",
-                                                color: "#666",
-                                                fontWeight: "400",
-                                                fontSize: "11px",
-                                              }}
-                                            >
-                                              ({pipeline.folderPath.replace(/\\/g, " / ")})
-                                            </span>
-                                          )}
-                                          {pipeline.isBuildPipeline && (
-                                            <span
-                                              className="body-xsmall"
-                                              style={{
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                                gap: "4px",
-                                                marginLeft: "8px",
-                                                padding: "2px 6px",
-                                                borderRadius: "10px",
-                                                backgroundColor: "#E6F2FB",
-                                                border: "1px solid #B3D8F5",
-                                                color: "#106EBE",
-                                                fontWeight: 600,
-                                              }}
-                                              title="Build validation pipeline"
-                                            >
-                                              <Icon
-                                                iconName="Shield"
-                                                style={{
-                                                  fontSize: "12px",
-                                                  color: "#106EBE",
-                                                }}
-                                              />
-                                              Build validation
-                                            </span>
-                                          )}
-                                        </span>
+                                          <Icon
+                                            iconName={this.getBuildStatusIcon(
+                                              pipeline.status,
+                                              pipeline.result
+                                            )}
+                                            style={{
+                                              fontSize: "14px",
+                                              color: this.getBuildStatusColor(
+                                                pipeline.status,
+                                                pipeline.result
+                                              ),
+                                            }}
+                                          />
+                                        </div>
 
-                                        {/* Status and Time Row */}
+                                        {/* Pipeline Info */}
+                                        <div
+                                          style={{
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            flex: 1,
+                                            gap: "2px",
+                                          }}
+                                        >
+                                          {/* Pipeline Name */}
+                                          <span
+                                            style={{
+                                              color: colors.link,
+                                              fontSize: "13px",
+                                              fontWeight: "600",
+                                              lineHeight: "1.4",
+                                            }}
+                                          >
+                                            {pipeline.name}
+                                            {pipeline.folderPath &&
+                                              pipeline.folderPath !== "\\" && (
+                                                <span
+                                                  className="body-xsmall"
+                                                  style={{
+                                                    display: "inline-block",
+                                                    marginLeft: "8px",
+                                                    color: "#666",
+                                                    fontWeight: "400",
+                                                    fontSize: "11px",
+                                                  }}
+                                                >
+                                                  (
+                                                  {pipeline.folderPath.replace(
+                                                    /\\/g,
+                                                    " / "
+                                                  )}
+                                                  )
+                                                </span>
+                                              )}
+                                            {pipeline.isBuildPipeline && (
+                                              <span
+                                                className="body-xsmall"
+                                                style={{
+                                                  display: "inline-flex",
+                                                  alignItems: "center",
+                                                  gap: "4px",
+                                                  marginLeft: "8px",
+                                                  padding: "2px 6px",
+                                                  borderRadius: "10px",
+                                                  backgroundColor: "#E6F2FB",
+                                                  border: "1px solid #B3D8F5",
+                                                  color: "#106EBE",
+                                                  fontWeight: 600,
+                                                }}
+                                                title="Build validation pipeline"
+                                              >
+                                                <Icon
+                                                  iconName="Shield"
+                                                  style={{
+                                                    fontSize: "12px",
+                                                    color: "#106EBE",
+                                                  }}
+                                                />
+                                                Build validation
+                                              </span>
+                                            )}
+                                          </span>
+
+                                          {/* Status and Time Row */}
+                                          <div
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: "8px",
+                                            }}
+                                          >
+                                            {/* Build Status Text */}
+                                            <span
+                                              style={{
+                                                fontSize: "11px",
+                                                color: this.getBuildStatusColor(
+                                                  pipeline.status,
+                                                  pipeline.result
+                                                ),
+                                                fontWeight: "500",
+                                                backgroundColor:
+                                                  this.getBuildStatusColor(
+                                                    pipeline.status,
+                                                    pipeline.result
+                                                  ) + "15",
+                                                padding: "2px 6px",
+                                                borderRadius: "3px",
+                                              }}
+                                            >
+                                              {this.getBuildStatusText(
+                                                pipeline.status,
+                                                pipeline.result
+                                              )}
+                                            </span>
+
+                                            {/* Last Build Time */}
+                                            <span
+                                              style={{
+                                                fontSize: "11px",
+                                                color: colors.subText,
+                                              }}
+                                            >
+                                              {timeAgo}
+                                            </span>
+
+                                            {/* Build Number */}
+                                            {pipeline.buildNumber && (
+                                              <span
+                                                style={{
+                                                  fontSize: "10px",
+                                                  color: colors.subText,
+                                                  backgroundColor:
+                                                    colors.badgeBg,
+                                                  padding: "2px 6px",
+                                                  borderRadius: "3px",
+                                                  fontFamily: "monospace",
+                                                }}
+                                              >
+                                                #{pipeline.buildNumber}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Actions */}
                                         <div
                                           style={{
                                             display: "flex",
@@ -2132,144 +2264,84 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             gap: "8px",
                                           }}
                                         >
-                                          {/* Build Status Text */}
-                                          <span
-                                            style={{
-                                              fontSize: "11px",
-                                              color: this.getBuildStatusColor(
-                                                pipeline.status,
-                                                pipeline.result
-                                              ),
-                                              fontWeight: "500",
-                                              backgroundColor:
-                                                this.getBuildStatusColor(
-                                                  pipeline.status,
-                                                  pipeline.result
-                                                ) + "15",
-                                              padding: "2px 6px",
-                                              borderRadius: "3px",
+                                          <Button
+                                            text="Trigger"
+                                            iconProps={{ iconName: "Play" }}
+                                            subtle={true}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (repo.id) {
+                                                this.triggerPipeline(
+                                                  repo.id,
+                                                  pipeline.definitionId,
+                                                  repo.name || "Unknown"
+                                                );
+                                              }
                                             }}
-                                          >
-                                            {this.getBuildStatusText(
-                                              pipeline.status,
-                                              pipeline.result
-                                            )}
-                                          </span>
-
-                                          {/* Last Build Time */}
-                                          <span
+                                          />
+                                          <Icon
+                                            iconName="OpenInNewWindow"
                                             style={{
-                                              fontSize: "11px",
+                                              fontSize: "12px",
                                               color: "#656d76",
+                                              opacity: 0.7,
                                             }}
-                                          >
-                                            {timeAgo}
-                                          </span>
-
-                                          {/* Build Number */}
-                                          {pipeline.buildNumber && (
-                                            <span
-                                              style={{
-                                                fontSize: "10px",
-                                                color: "#656d76",
-                                                backgroundColor: "#f6f8fa",
-                                                padding: "2px 6px",
-                                                borderRadius: "3px",
-                                                fontFamily: "monospace",
-                                              }}
-                                            >
-                                              #{pipeline.buildNumber}
-                                            </span>
-                                          )}
+                                          />
                                         </div>
                                       </div>
-
-                                      {/* Actions */}
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "8px",
-                                        }}
-                                      >
-                                        <Button
-                                          text="Trigger"
-                                          iconProps={{ iconName: "Play" }}
-                                          subtle={true}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (repo.id) {
-                                              this.triggerPipeline(
-                                                repo.id,
-                                                pipeline.definitionId,
-                                                repo.name || "Unknown"
-                                              );
-                                            }
-                                          }}
-                                        />
-                                        <Icon
-                                          iconName="OpenInNewWindow"
-                                          style={{
-                                            fontSize: "12px",
-                                            color: "#656d76",
-                                            opacity: 0.7,
-                                          }}
-                                        />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                                {buildStatuses[repo.id].pipelineDetails!
-                                  .length > 3 && (
-                                  <div
-                                    style={{
-                                      marginTop: "12px",
-                                      display: "flex",
-                                      justifyContent: "center",
-                                    }}
-                                  >
-                                    <Button
-                                      text={
-                                        this.state.expandedPipelineRepos.has(
-                                          repo.id!
-                                        )
-                                          ? "Show less"
-                                          : "Show more"
-                                      }
-                                      iconProps={{
-                                        iconName:
+                                    );
+                                  })}
+                                  {(buildStatuses[repo.id].pipelineDetails?.length ?? 0) > 3 && (
+                                    <div
+                                      style={{
+                                        marginTop: "12px",
+                                        display: "flex",
+                                        justifyContent: "center",
+                                      }}
+                                    >
+                                      <Button
+                                        text={
                                           this.state.expandedPipelineRepos.has(
                                             repo.id!
                                           )
-                                            ? "ChevronUp"
-                                            : "ChevronDown",
-                                      }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        this.setState((prevState) => {
-                                          const next = new Set(
-                                            prevState.expandedPipelineRepos
-                                          );
-                                          if (repo.id && next.has(repo.id)) {
-                                            next.delete(repo.id);
-                                          } else if (repo.id) {
-                                            next.add(repo.id);
-                                          }
-                                          return {
-                                            expandedPipelineRepos: next,
-                                          } as any;
-                                        });
-                                      }}
-                                      primary={false}
-                                      subtle={true}
-                                    />
-                                  </div>
-                                )}
+                                            ? "Show less"
+                                            : "Show more"
+                                        }
+                                        iconProps={{
+                                          iconName:
+                                            this.state.expandedPipelineRepos.has(
+                                              repo.id!
+                                            )
+                                              ? "ChevronUp"
+                                              : "ChevronDown",
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          this.setState((prevState) => {
+                                            const next = new Set(
+                                              prevState.expandedPipelineRepos
+                                            );
+                                            if (repo.id && next.has(repo.id)) {
+                                              next.delete(repo.id);
+                                            } else if (repo.id) {
+                                              next.add(repo.id);
+                                            }
+                                            return {
+                                              expandedPipelineRepos: next,
+                                            } as any;
+                                          });
+                                        }}
+                                        primary={true}
+                                        subtle={false}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          )}
-                      </div>
-                    ))}
+                            )}
+                        </div>
+                      ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -2283,7 +2355,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                   style={{
                     textAlign: "center",
                     padding: "40px",
-                    color: "#666",
+                    color: colors.subText,
                   }}
                 >
                   Loading pull requests...
@@ -2361,7 +2433,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                           </div>
                           <div
                             className="body-small"
-                            style={{ color: "#666", marginTop: "4px" }}
+                            style={{ color: colors.subText, marginTop: "4px" }}
                           >
                             Please read the description before publishing.
                             Confirmation is required.
@@ -2371,7 +2443,10 @@ export class HomePage extends React.Component<object, HomePageState> {
                           <div style={{ marginBottom: "12px" }}>
                             <div
                               className="body-small"
-                              style={{ color: "#666", marginBottom: "6px" }}
+                              style={{
+                                color: colors.subText,
+                                marginBottom: "6px",
+                              }}
                             >
                               Title
                             </div>
@@ -2382,14 +2457,17 @@ export class HomePage extends React.Component<object, HomePageState> {
                           <div style={{ marginBottom: "12px" }}>
                             <div
                               className="body-small"
-                              style={{ color: "#666", marginBottom: "6px" }}
+                              style={{
+                                color: colors.subText,
+                                marginBottom: "6px",
+                              }}
                             >
                               Description
                             </div>
                             <div
                               style={{
-                                background: "#fafafa",
-                                border: "1px solid #eee",
+                                background: isDark ? "#0b1220" : "#fafafa",
+                                border: `1px solid ${colors.border}`,
                                 borderRadius: "6px",
                                 padding: "12px",
                                 maxHeight: "360px",
@@ -2410,6 +2488,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       href={href}
                                       target="_blank"
                                       rel="noopener noreferrer"
+                                      style={{ color: colors.link }}
                                     >
                                       {children}
                                     </a>
@@ -2424,6 +2503,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         width: "100%",
                                         borderCollapse: "collapse",
                                         margin: "8px 0",
+                                        color: colors.text,
                                       }}
                                     >
                                       {children}
@@ -2436,10 +2516,12 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   }) => (
                                     <th
                                       style={{
-                                        border: "1px solid #d0d7de",
+                                        border: `1px solid ${colors.border}`,
                                         padding: "6px 8px",
-                                        background: "#f6f8fa",
                                         textAlign: "left",
+                                        background: isDark
+                                          ? "#0b2845"
+                                          : "#f6f8fa",
                                       }}
                                     >
                                       {children}
@@ -2452,9 +2534,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                                   }) => (
                                     <td
                                       style={{
-                                        border: "1px solid #d0d7de",
+                                        border: `1px solid ${colors.border}`,
                                         padding: "6px 8px",
-                                        verticalAlign: "top",
                                       }}
                                     >
                                       {children}
@@ -2470,10 +2551,11 @@ export class HomePage extends React.Component<object, HomePageState> {
                                     inline ? (
                                       <code
                                         style={{
-                                          background: "#f6f8fa",
-                                          padding: "0 3px",
-                                          borderRadius: "3px",
-                                          fontFamily: "monospace",
+                                          backgroundColor: isDark
+                                            ? "#111827"
+                                            : "#f6f8fa",
+                                          padding: "2px 4px",
+                                          borderRadius: "4px",
                                         }}
                                       >
                                         {children}
@@ -2481,18 +2563,15 @@ export class HomePage extends React.Component<object, HomePageState> {
                                     ) : (
                                       <pre
                                         style={{
-                                          background: "#0b1021",
-                                          color: "#e6e6e6",
+                                          backgroundColor: isDark
+                                            ? "#0b1220"
+                                            : "#f6f8fa",
                                           padding: "12px",
                                           borderRadius: "6px",
                                           overflow: "auto",
                                         }}
                                       >
-                                        <code
-                                          style={{ fontFamily: "monospace" }}
-                                        >
-                                          {children}
-                                        </code>
+                                        <code>{children}</code>
                                       </pre>
                                     ),
                                 }}
@@ -2520,7 +2599,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                               }
                             />
                             <span>
-                              I have read the description and confirm it’s ready
+                              I have read the description and confirm it's ready
                               to publish
                             </span>
                           </label>
