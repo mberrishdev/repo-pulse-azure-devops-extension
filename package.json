@@ -7,7 +7,7 @@
 		"compile": "npm run clean && webpack --mode development",
 		"start": "webpack-dev-server --mode development",
 		"package": "npm run compile && tfx extension create --manifest-globs vss-extension.json --output-path out --rev-version",
-		"publish": "npm run package && tfx extension publish --manifest-globs vss-extension.json --output-path out --token GF93K1SrMQRih947qJweG4lQL88qU2l8vxySJK1YkQBgzPgYnjYYJQQJ99BHACAAAAAAAAAAAAASAZDO1FrO"
+		"publish": "npm run package && tfx extension publish --manifest-globs vss-extension.json --output-path out --token $AZURE_DEVOPS_TOKEN"
 	},
 	"keywords": [],
 	"author": "mberrishdev",
