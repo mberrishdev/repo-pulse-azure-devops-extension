@@ -232,9 +232,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       hasAcknowledgedReview: false,
       isReviewLoading: false,
       repoSearch: "",
-      isDarkMode:
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches,
+      isDarkMode: false,
     };
   }
 
@@ -875,7 +873,8 @@ export class HomePage extends React.Component<object, HomePageState> {
         }
 
         // Get build status for the PR
-        const projectName = this.getProjectInfo()?.name || pr.repository?.project?.name || "";
+        const projectName =
+          this.getProjectInfo()?.name || pr.repository?.project?.name || "";
         const builds = await this.buildClient!.getBuilds(
           projectName,
           undefined, // definitions
@@ -909,7 +908,8 @@ export class HomePage extends React.Component<object, HomePageState> {
               trig["pr.id"] ||
               trig["system.pullRequest.pullRequestId"];
             const trigBranch =
-              trig["pr.sourceBranch"] || trig["system.pullRequest.sourceBranch"];
+              trig["pr.sourceBranch"] ||
+              trig["system.pullRequest.sourceBranch"];
             return (
               (trigPr && trigPr.toString() === prNumber) ||
               (trigBranch && trigBranch === sourceBranch) ||
@@ -1850,7 +1850,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gridTemplateColumns: "repeat(1, minmax(0, 1fr))",
                       gap: "12px",
                       alignItems: "start",
                     }}
@@ -2240,14 +2240,22 @@ export class HomePage extends React.Component<object, HomePageState> {
                                                 title={`Open ${pipeline.yamlPath} in default branch`}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  const repoDefault = repo.defaultBranch?.replace(
-                                                    "refs/heads/",
-                                                    ""
-                                                  ) || "master";
-                                                  const project = this.getProjectInfo()?.name;
+                                                  const repoDefault =
+                                                    repo.defaultBranch?.replace(
+                                                      "refs/heads/",
+                                                      ""
+                                                    ) || "master";
+                                                  const project =
+                                                    this.getProjectInfo()?.name;
                                                   if (project && repo.name) {
-                                                    const url = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${project}/_git/${repo.name}?path=${encodeURIComponent(
-                                                      "/" + pipeline.yamlPath || ""
+                                                    const url = `${
+                                                      this.config
+                                                        .azureDevOpsBaseUrl
+                                                    }/DefaultCollection/${project}/_git/${
+                                                      repo.name
+                                                    }?path=${encodeURIComponent(
+                                                      "/" + pipeline.yamlPath ||
+                                                        ""
                                                     )}&version=GB${encodeURIComponent(
                                                       repoDefault
                                                     )}&_a=contents`;
@@ -2346,7 +2354,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       </div>
                                     );
                                   })}
-                                  {(buildStatuses[repo.id].pipelineDetails?.length ?? 0) > 3 && (
+                                  {(buildStatuses[repo.id].pipelineDetails
+                                    ?.length ?? 0) > 3 && (
                                     <div
                                       style={{
                                         marginTop: "12px",
