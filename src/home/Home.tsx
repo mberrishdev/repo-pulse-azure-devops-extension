@@ -48,6 +48,7 @@ interface HomePageState {
   isReviewLoading: boolean;
   repoSearch?: string;
   isDarkMode?: boolean;
+  showOnlyFavorites: boolean;
 }
 
 interface RepositoryBuildStatus {
@@ -233,6 +234,7 @@ export class HomePage extends React.Component<object, HomePageState> {
       isReviewLoading: false,
       repoSearch: "",
       isDarkMode: false,
+      showOnlyFavorites: false,
     };
   }
 
@@ -1051,6 +1053,33 @@ export class HomePage extends React.Component<object, HomePageState> {
     return groups;
   };
 
+  private sortGroupedPullRequestsByFavorites = (
+    groupedPullRequests: Record<string, GitPullRequest[]>
+  ): [string, GitPullRequest[]][] => {
+    const entries = Object.entries(groupedPullRequests);
+
+    // Filter by favorites if showOnlyFavorites is true
+    const filteredEntries = this.state.showOnlyFavorites
+      ? entries.filter(([_, prs]) =>
+          prs.some((pr) => this.state.favoriteRepoIds.has(pr.repository?.id || ""))
+        )
+      : entries;
+
+    return filteredEntries.sort(([titleA, prsA], [titleB, prsB]) => {
+      const aHasFavorite = prsA.some((pr) =>
+        this.state.favoriteRepoIds.has(pr.repository?.id || "")
+      );
+      const bHasFavorite = prsB.some((pr) =>
+        this.state.favoriteRepoIds.has(pr.repository?.id || "")
+      );
+
+      if (aHasFavorite && !bHasFavorite) return -1;
+      if (!aHasFavorite && bHasFavorite) return 1;
+
+      return titleA.localeCompare(titleB);
+    });
+  };
+
   private onTabChanged = (selectedTabId: string) => {
     // Update the URL query parameter
     this.setQueryParam("tab", selectedTabId);
@@ -1824,26 +1853,71 @@ export class HomePage extends React.Component<object, HomePageState> {
                       justifyContent: "space-between",
                       alignItems: "center",
                       marginBottom: "12px",
+                      gap: "12px",
                     }}
                   >
-                    <input
-                      type="text"
-                      placeholder="Search repositories..."
-                      value={this.state.repoSearch}
-                      onChange={(e) =>
-                        this.setState({ repoSearch: e.currentTarget.value })
-                      }
+                    <div
                       style={{
+                        position: "relative",
                         width: "100%",
                         maxWidth: "420px",
-                        padding: "8px 12px",
-                        border: `1px solid ${colors.subBorder}`,
-                        borderRadius: "6px",
-                        outline: "none",
-                        fontSize: "13px",
-                        backgroundColor: colors.surface,
-                        color: colors.text,
                       }}
+                    >
+                      <input
+                        type="text"
+                        placeholder="Search repositories..."
+                        value={this.state.repoSearch}
+                        onChange={(e) =>
+                          this.setState({ repoSearch: e.currentTarget.value })
+                        }
+                        style={{
+                          width: "100%",
+                          padding: "8px 32px 8px 12px",
+                          border: `1px solid ${colors.subBorder}`,
+                          borderRadius: "6px",
+                          outline: "none",
+                          fontSize: "13px",
+                          backgroundColor: colors.surface,
+                          color: colors.text,
+                        }}
+                      />
+                      {this.state.repoSearch && this.state.repoSearch.length > 0 && (
+                        <button
+                          onClick={() => this.setState({ repoSearch: "" })}
+                          style={{
+                            position: "absolute",
+                            right: "8px",
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            border: "none",
+                            background: "transparent",
+                            cursor: "pointer",
+                            padding: "4px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: colors.subText,
+                            transition: "color 0.2s ease",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = colors.text;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = colors.subText;
+                          }}
+                          title="Clear search"
+                        >
+                          <Icon iconName="Cancel" style={{ fontSize: "14px" }} />
+                        </button>
+                      )}
+                    </div>
+                    <Button
+                      text={this.state.showOnlyFavorites ? "Show All" : "Show Favorites"}
+                      iconProps={{
+                        iconName: this.state.showOnlyFavorites ? "List" : "FavoriteStarFill",
+                      }}
+                      onClick={() => this.setState({ showOnlyFavorites: !this.state.showOnlyFavorites })}
+                      subtle={!this.state.showOnlyFavorites}
                     />
                   </div>
 
@@ -1863,6 +1937,11 @@ export class HomePage extends React.Component<object, HomePageState> {
                           : (repo.name || "")
                               .toLowerCase()
                               .includes(this.state.repoSearch!.toLowerCase())
+                      )
+                      .filter((repo) =>
+                        this.state.showOnlyFavorites
+                          ? this.state.favoriteRepoIds.has(repo.id || "")
+                          : true
                       )
                       .map((repo) => (
                         <div
@@ -2427,13 +2506,30 @@ export class HomePage extends React.Component<object, HomePageState> {
               )}
 
               {!loading && (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "24px",
-                  }}
-                >
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <Button
+                      text={this.state.showOnlyFavorites ? "Show All" : "Show Favorites"}
+                      iconProps={{
+                        iconName: this.state.showOnlyFavorites ? "List" : "FavoriteStarFill",
+                      }}
+                      onClick={() => this.setState({ showOnlyFavorites: !this.state.showOnlyFavorites })}
+                      subtle={!this.state.showOnlyFavorites}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "24px",
+                    }}
+                  >
                   {this.state.reviewPR && (
                     <div
                       style={{
@@ -2695,7 +2791,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                       </div>
                     </div>
                   )}
-                  {Object.entries(groupedPullRequests).map(([prTitle, prs]) => {
+                  {this.sortGroupedPullRequestsByFavorites(groupedPullRequests).map(([prTitle, prs]) => {
                     const hasDraftPRs = prs.some((pr) => pr.isDraft);
                     const draftCount = prs.filter((pr) => pr.isDraft).length;
 
@@ -3130,6 +3226,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                       </div>
                     );
                   })}
+                  </div>
                 </div>
               )}
 
