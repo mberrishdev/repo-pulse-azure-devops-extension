@@ -875,8 +875,9 @@ export class HomePage extends React.Component<object, HomePageState> {
         }
 
         // Get build status for the PR
+        const projectName = this.getProjectInfo()?.name || pr.repository?.project?.name || "";
         const builds = await this.buildClient!.getBuilds(
-          pr.repository?.project?.name || "",
+          projectName,
           undefined, // definitions
           undefined, // queues
           undefined, // buildNumber
@@ -888,20 +889,39 @@ export class HomePage extends React.Component<object, HomePageState> {
           undefined, // resultFilter
           undefined, // tagFilters
           undefined, // properties
-          5, // top - get recent builds
+          20, // top - get recent builds
           undefined, // continuationToken
           undefined, // maxBuildsPerDefinition
           undefined, // deletedFilter
-          undefined, // queryOrder
+          2, // queryOrder - FinishTimeDescending
           pr.sourceRefName // branch filter
         );
 
-        // Find the most recent build for this PR's source branch
-        const latestBuild = builds.find(
-          (build) =>
-            build.sourceBranch === pr.sourceRefName ||
-            build.triggerInfo?.["pr.number"] === pr.pullRequestId?.toString()
-        );
+        // Find the most recent build for this PR (account for PR validation refs)
+        const prNumber = pr.pullRequestId?.toString();
+        const sourceBranch = pr.sourceRefName;
+        const latestBuild = builds
+          .filter((build) => {
+            const buildBranch = build.sourceBranch || "";
+            const trig = (build.triggerInfo || {}) as Record<string, any>;
+            const trigPr =
+              trig["pr.number"] ||
+              trig["pr.id"] ||
+              trig["system.pullRequest.pullRequestId"];
+            const trigBranch =
+              trig["pr.sourceBranch"] || trig["system.pullRequest.sourceBranch"];
+            return (
+              (trigPr && trigPr.toString() === prNumber) ||
+              (trigBranch && trigBranch === sourceBranch) ||
+              buildBranch === sourceBranch ||
+              (prNumber && buildBranch.endsWith(`/${prNumber}/merge`))
+            );
+          })
+          .sort((a, b) => {
+            const aTime = new Date(a.finishTime || a.startTime || 0).getTime();
+            const bTime = new Date(b.finishTime || b.startTime || 0).getTime();
+            return bTime - aTime;
+          })[0];
 
         // Get approval status information
         let approvalStatus:
