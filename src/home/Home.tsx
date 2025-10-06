@@ -252,8 +252,9 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       await this.checkPermissions();
       await this.loadFavoriteRepositories();
-      await this.loadRepositories();
-      await this.loadPullRequests();
+      
+      // Load data based on active tab to avoid unnecessary requests
+      await this.loadDataForActiveTab();
 
       // Listen to dark mode preference changes
       if (window.matchMedia) {
@@ -475,38 +476,47 @@ export class HomePage extends React.Component<object, HomePageState> {
 
       const definitionsByRepo = new Map<string, any[]>();
 
-      // Get definitions for each repository individually since repository ID is mandatory
-      for (const repo of repos) {
-        if (!repo.id) continue;
+      // OPTIMIZATION: Batch repository definition requests in parallel instead of sequential
+      const definitionPromises = repos
+        .filter(repo => repo.id)
+        .map(async (repo) => {
+          try {
+            const repoDefinitions = await this.buildClient!.getDefinitions(
+              projectName,
+              undefined, // name
+              repo.id, // repositoryId - use the loaded repository ID
+              "TfsGit", // repositoryType - specify Git repository type
+              undefined, // queryOrder
+              undefined, // top
+              undefined, // continuationToken
+              undefined, // minMetricsTime
+              undefined, // definitionIds
+              undefined, // path
+              undefined, // builtAfter
+              undefined, // notBuiltAfter
+              true, // includeAllProperties
+              true // includeLatestBuilds
+            );
 
-        try {
-          const repoDefinitions = await this.buildClient.getDefinitions(
-            projectName,
-            undefined, // name
-            repo.id, // repositoryId - use the loaded repository ID
-            "TfsGit", // repositoryType - specify Git repository type
-            undefined, // queryOrder
-            undefined, // top
-            undefined, // continuationToken
-            undefined, // minMetricsTime
-            undefined, // definitionIds
-            undefined, // path
-            undefined, // builtAfter
-            undefined, // notBuiltAfter
-            true, // includeAllProperties
-            true // includeLatestBuilds
-          );
-
-          if (repoDefinitions.length > 0) {
-            definitionsByRepo.set(repo.id, repoDefinitions);
+            return { repoId: repo.id!, definitions: repoDefinitions };
+          } catch (error) {
+            console.warn(
+              `Failed to load definitions for repo ${repo.name}:`,
+              error
+            );
+            return { repoId: repo.id!, definitions: [] };
           }
-        } catch (error) {
-          console.warn(
-            `Failed to load definitions for repo ${repo.name}:`,
-            error
-          );
+        });
+
+      // Wait for all definition requests to complete in parallel
+      const definitionResults = await Promise.allSettled(definitionPromises);
+      
+      // Process results
+      definitionResults.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value.definitions.length > 0) {
+          definitionsByRepo.set(result.value.repoId, result.value.definitions);
         }
-      }
+      });
 
       // Process each repository's definitions
       const processPromises = repos.map(async (repo) => {
@@ -548,32 +558,57 @@ export class HomePage extends React.Component<object, HomePageState> {
           repo.defaultBranch
         );
 
-        // Get detailed pipeline information including build status
-        const pipelineDetails: PipelineDetail[] = [];
+        // OPTIMIZATION: Batch build requests for all definitions in parallel
+        const buildPromises = definitions
+          .filter(def => def.id && def.name)
+          .map(async (def) => {
+            try {
+              const builds = await this.buildClient!.getBuilds(
+                projectName,
+                [def.id],
+                undefined, // queues
+                undefined, // buildNumber
+                undefined, // minTime
+                undefined, // maxTime
+                undefined, // requestedFor
+                undefined, // reasonFilter
+                undefined, // statusFilter
+                undefined, // resultFilter
+                undefined, // tagFilters
+                undefined, // properties
+                1 // top - get only the latest build
+              );
 
-        for (const def of definitions) {
-          if (!def.id || !def.name) continue;
+              const latestBuild = builds.length > 0 ? builds[0] : null;
+              
+              return {
+                definition: def,
+                latestBuild,
+                success: true
+              };
+            } catch (error) {
+              console.warn(
+                `Failed to get build info for pipeline ${def.name}:`,
+                error
+              );
+              return {
+                definition: def,
+                latestBuild: null,
+                success: false
+              };
+            }
+          });
 
-          try {
-            const builds = await this.buildClient!.getBuilds(
-              projectName,
-              [def.id],
-              undefined, // queues
-              undefined, // buildNumber
-              undefined, // minTime
-              undefined, // maxTime
-              undefined, // requestedFor
-              undefined, // reasonFilter
-              undefined, // statusFilter
-              undefined, // resultFilter
-              undefined, // tagFilters
-              undefined, // properties
-              1 // top - get only the latest build
-            );
-
-            const latestBuild = builds.length > 0 ? builds[0] : null;
-
-            pipelineDetails.push({
+        // Wait for all build requests to complete in parallel
+        const buildResults = await Promise.allSettled(buildPromises);
+        
+        // Process build results into pipeline details
+        const pipelineDetails: PipelineDetail[] = buildResults
+          .filter(result => result.status === 'fulfilled')
+          .map(result => {
+            const { definition: def, latestBuild } = (result as PromiseFulfilledResult<any>).value;
+            
+            return {
               name: def.name,
               url: `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`,
               definitionId: def.id,
@@ -585,23 +620,8 @@ export class HomePage extends React.Component<object, HomePageState> {
               isBuildPipeline: def.id === buildValidationPipelineId,
               folderPath: def.path,
               yamlPath: (def.process as any)?.yamlFilename,
-            });
-          } catch (error) {
-            console.warn(
-              `Failed to get build info for pipeline ${def.name}:`,
-              error
-            );
-            // Add pipeline without build info
-            pipelineDetails.push({
-              name: def.name,
-              url: `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectName}/_build?definitionId=${def.id}`,
-              definitionId: def.id,
-              status: BuildStatus.None,
-              folderPath: def.path,
-              yamlPath: (def.process as any)?.yamlFilename,
-            });
-          }
-        }
+            };
+          });
 
         pipelineDetails.sort((a, b) => {
           const aIsBuild = a.isBuildPipeline ? 1 : 0;
@@ -838,24 +858,30 @@ export class HomePage extends React.Component<object, HomePageState> {
 
     this.setState({ loadingPRBuilds: true });
 
+    // OPTIMIZATION: Initialize loading state for all PRs at once
+    const initialPRStatuses: Record<number, PullRequestBuildStatus> = {};
+    pullRequests.forEach(pr => {
+      if (pr.pullRequestId) {
+        initialPRStatuses[pr.pullRequestId] = {
+          status: BuildStatus.None,
+          isLoading: true,
+          approvalStatus: "unknown",
+          reviewerCount: 0,
+          requiredReviewerCount: 0,
+          hasAutoComplete: false,
+        };
+      }
+    });
+
+    this.setState(prevState => ({
+      prBuildStatuses: { ...prevState.prBuildStatuses, ...initialPRStatuses }
+    }));
+
+    // OPTIMIZATION: Process PRs in parallel batches instead of individually
     const statusPromises = pullRequests.map(async (pr) => {
-      if (!pr.pullRequestId) return;
+      if (!pr.pullRequestId) return null;
 
       try {
-        // Initialize loading state for this PR
-        this.setState((prevState) => ({
-          prBuildStatuses: {
-            ...prevState.prBuildStatuses,
-            [pr.pullRequestId!]: {
-              status: BuildStatus.None,
-              isLoading: true,
-              approvalStatus: "unknown",
-              reviewerCount: 0,
-              requiredReviewerCount: 0,
-              hasAutoComplete: false,
-            },
-          },
-        }));
 
         // If reviewers are not populated, try to get detailed PR information
         let detailedPR = pr;
@@ -1002,37 +1028,43 @@ export class HomePage extends React.Component<object, HomePageState> {
           hasAutoComplete: !!detailedPR.autoCompleteSetBy,
         };
 
-        this.setState((prevState) => ({
-          prBuildStatuses: {
-            ...prevState.prBuildStatuses,
-            [pr.pullRequestId!]: prBuildStatus,
-          },
-        }));
+        return { prId: pr.pullRequestId!, status: prBuildStatus };
       } catch (error) {
         console.error(
           `Failed to load build status for PR ${pr.pullRequestId}:`,
           error
         );
 
-        // Set error state for this PR
-        this.setState((prevState) => ({
-          prBuildStatuses: {
-            ...prevState.prBuildStatuses,
-            [pr.pullRequestId!]: {
-              status: BuildStatus.None,
-              isLoading: false,
-              approvalStatus: "unknown",
-              reviewerCount: 0,
-              requiredReviewerCount: 0,
-              hasAutoComplete: false,
-            },
-          },
-        }));
+        // Return error state for this PR
+        return {
+          prId: pr.pullRequestId!,
+          status: {
+            status: BuildStatus.None,
+            isLoading: false,
+            approvalStatus: "unknown" as const,
+            reviewerCount: 0,
+            requiredReviewerCount: 0,
+            hasAutoComplete: false,
+          }
+        };
       }
     });
 
-    await Promise.allSettled(statusPromises);
-    this.setState({ loadingPRBuilds: false });
+    // OPTIMIZATION: Wait for all PR status requests and batch update state
+    const statusResults = await Promise.allSettled(statusPromises);
+    
+    const updatedPRStatuses: Record<number, PullRequestBuildStatus> = {};
+    statusResults.forEach(result => {
+      if (result.status === 'fulfilled' && result.value) {
+        updatedPRStatuses[result.value.prId] = result.value.status;
+      }
+    });
+
+    // Single state update for all PR statuses
+    this.setState(prevState => ({
+      prBuildStatuses: { ...prevState.prBuildStatuses, ...updatedPRStatuses },
+      loadingPRBuilds: false
+    }));
   }
 
   private groupPullRequests = (
@@ -1080,13 +1112,30 @@ export class HomePage extends React.Component<object, HomePageState> {
     });
   };
 
-  private onTabChanged = (selectedTabId: string) => {
+  private onTabChanged = async (selectedTabId: string) => {
     // Update the URL query parameter
     this.setQueryParam("tab", selectedTabId);
 
     // Update the state
     this.setState({ selectedTabId });
+
+    // Load data for the newly selected tab if not already loaded
+    await this.loadDataForActiveTab(selectedTabId);
   };
+
+  private async loadDataForActiveTab(tabId?: string) {
+    const activeTab = tabId || this.state.selectedTabId;
+    
+    if (activeTab === "repositories") {
+      if (this.state.repos.length === 0) {
+        await this.loadRepositories();
+      }
+    } else if (activeTab === "pullrequests") {
+      if (this.state.pullRequests.length === 0) {
+        await this.loadPullRequests();
+      }
+    }
+  }
 
   private getStatusText = (status: number): string => {
     switch (status) {
