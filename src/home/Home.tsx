@@ -2273,11 +2273,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       : "Never";
 
                                     return (
-                                      <a
+                                      <div
                                         key={index}
-                                        href={pipeline.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
                                         style={{
                                           display: "flex",
                                           alignItems: "center",
@@ -2287,8 +2284,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                           borderRadius: "6px",
                                           border: `1px solid ${colors.subBorder}`,
                                           transition: "all 0.2s ease",
-                                          textDecoration: "none",
-                                          color: "inherit",
+                                          cursor: "pointer",
                                         }}
                                         onMouseEnter={(e) => {
                                           e.currentTarget.style.backgroundColor =
@@ -2305,6 +2301,21 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             colors.subBorder;
                                           e.currentTarget.style.boxShadow =
                                             "none";
+                                        }}
+                                        onClick={(e) => {
+                                          // Check if it's a middle click or ctrl+click
+                                          if (e.button === 1 || e.ctrlKey || e.metaKey) {
+                                            window.open(pipeline.url, '_blank');
+                                          } else {
+                                            window.open(pipeline.url, '_blank');
+                                          }
+                                        }}
+                                        onAuxClick={(e) => {
+                                          // Handle middle mouse button
+                                          if (e.button === 1) {
+                                            e.preventDefault();
+                                            window.open(pipeline.url, '_blank');
+                                          }
                                         }}
                                         title={`Click to open ${pipeline.name} pipeline`}
                                       >
@@ -2526,7 +2537,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             subtle={true}
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              e.preventDefault();
                                               if (repo.id) {
                                                 this.triggerPipeline(
                                                   repo.id,
@@ -2545,7 +2555,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             }}
                                           />
                                         </div>
-                                      </a>
+                                      </div>
                                     );
                                   })}
                                   {(buildStatuses[repo.id].pipelineDetails
@@ -2990,15 +3000,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                             {prs
                               .filter((pr) => pr && pr.pullRequestId)
                               .map((pr) => (
-                                <a
+                                <div
                                   key={pr.pullRequestId}
-                                  href={(() => {
-                                    const projectInfo = this.getProjectInfo();
-                                    if (!projectInfo?.name) return "#";
-                                    return `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
-                                  })()}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
                                   style={{
                                     backgroundColor: "white",
                                     border: "1px solid #e1e1e1",
@@ -3009,8 +3012,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                     justifyContent: "space-between",
                                     transition:
                                       "box-shadow 0.2s ease, border-color 0.2s ease",
-                                    textDecoration: "none",
-                                    color: "inherit",
+                                    cursor: "pointer",
                                   }}
                                   onMouseEnter={(e) => {
                                     e.currentTarget.style.boxShadow =
@@ -3022,6 +3024,29 @@ export class HomePage extends React.Component<object, HomePageState> {
                                     e.currentTarget.style.boxShadow = "none";
                                     e.currentTarget.style.borderColor =
                                       "#e1e1e1";
+                                  }}
+                                  onClick={(e) => {
+                                    const projectInfo = this.getProjectInfo();
+                                    if (projectInfo?.name) {
+                                      const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                                      // Check if it's a middle click or ctrl+click
+                                      if (e.button === 1 || e.ctrlKey || e.metaKey) {
+                                        window.open(prUrl, '_blank');
+                                      } else {
+                                        window.open(prUrl, '_blank');
+                                      }
+                                    }
+                                  }}
+                                  onAuxClick={(e) => {
+                                    // Handle middle mouse button
+                                    if (e.button === 1) {
+                                      e.preventDefault();
+                                      const projectInfo = this.getProjectInfo();
+                                      if (projectInfo?.name) {
+                                        const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                                        window.open(prUrl, '_blank');
+                                      }
+                                    }
                                   }}
                                 >
                                   <div
@@ -3301,7 +3326,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         iconProps={{ iconName: "PreviewLink" }}
                                         onClick={async (event) => {
                                           event.stopPropagation();
-                                          event.preventDefault();
                                           try {
                                             this.setState({
                                               isReviewLoading: true,
@@ -3339,7 +3363,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         }}
                                         onClick={(event) => {
                                           event.stopPropagation();
-                                          event.preventDefault();
                                           const repoName = pr.repository?.name;
                                           if (repoName) {
                                             const repo = repos.find(
@@ -3364,7 +3387,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       }}
                                     />
                                   </div>
-                                </a>
+                                </div>
                               ))}
                           </div>
                         </div>
