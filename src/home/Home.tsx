@@ -2102,9 +2102,15 @@ export class HomePage extends React.Component<object, HomePageState> {
                                     gap: "8px",
                                   }}
                                 >
-                                  <span
+                                  <a
+                                    href={(() => {
+                                      const projectInfo = this.getProjectInfo();
+                                      if (!projectInfo?.name) return "#";
+                                      return `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${repo.name}`;
+                                    })()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
                                     style={{
-                                      cursor: "pointer",
                                       color: colors.link,
                                       textDecoration: "none",
                                       transition: "color 0.2s ease",
@@ -2117,11 +2123,10 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       e.currentTarget.style.textDecoration =
                                         "none";
                                     }}
-                                    onClick={() => this.openRepository(repo)}
                                     title={`Click to open ${repo.name} repository`}
                                   >
                                     {repo.name}
-                                  </span>
+                                  </a>
                                   <span
                                     style={{
                                       cursor: "pointer",
@@ -2268,8 +2273,11 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       : "Never";
 
                                     return (
-                                      <div
+                                      <a
                                         key={index}
+                                        href={pipeline.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
                                         style={{
                                           display: "flex",
                                           alignItems: "center",
@@ -2279,7 +2287,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                                           borderRadius: "6px",
                                           border: `1px solid ${colors.subBorder}`,
                                           transition: "all 0.2s ease",
-                                          cursor: "pointer",
+                                          textDecoration: "none",
+                                          color: "inherit",
                                         }}
                                         onMouseEnter={(e) => {
                                           e.currentTarget.style.backgroundColor =
@@ -2296,10 +2305,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             colors.subBorder;
                                           e.currentTarget.style.boxShadow =
                                             "none";
-                                        }}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          this.navigateToUrl(pipeline.url);
                                         }}
                                         title={`Click to open ${pipeline.name} pipeline`}
                                       >
@@ -2412,18 +2417,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                                           >
                                             {/* YAML file link */}
                                             {pipeline.yamlPath && (
-                                              <span
-                                                style={{
-                                                  fontSize: "11px",
-                                                  color: "#666",
-                                                  backgroundColor: "#f6f8fa",
-                                                  padding: "2px 6px",
-                                                  borderRadius: "3px",
-                                                  cursor: "pointer",
-                                                }}
-                                                title={`Open ${pipeline.yamlPath} in default branch`}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
+                                              <a
+                                                href={(() => {
                                                   const repoDefault =
                                                     repo.defaultBranch?.replace(
                                                       "refs/heads/",
@@ -2432,7 +2427,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                                   const project =
                                                     this.getProjectInfo()?.name;
                                                   if (project && repo.name) {
-                                                    const url = `${
+                                                    return `${
                                                       this.config
                                                         .azureDevOpsBaseUrl
                                                     }/DefaultCollection/${project}/_git/${
@@ -2443,12 +2438,26 @@ export class HomePage extends React.Component<object, HomePageState> {
                                                     )}&version=GB${encodeURIComponent(
                                                       repoDefault
                                                     )}&_a=contents`;
-                                                    this.navigateToUrl(url);
                                                   }
+                                                  return "#";
+                                                })()}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{
+                                                  fontSize: "11px",
+                                                  color: "#666",
+                                                  backgroundColor: "#f6f8fa",
+                                                  padding: "2px 6px",
+                                                  borderRadius: "3px",
+                                                  textDecoration: "none",
+                                                }}
+                                                title={`Open ${pipeline.yamlPath} in default branch`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
                                                 }}
                                               >
                                                 {pipeline.yamlPath}
-                                              </span>
+                                              </a>
                                             )}
                                             {/* Build Status Text */}
                                             <span
@@ -2517,6 +2526,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             subtle={true}
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              e.preventDefault();
                                               if (repo.id) {
                                                 this.triggerPipeline(
                                                   repo.id,
@@ -2535,7 +2545,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                             }}
                                           />
                                         </div>
-                                      </div>
+                                      </a>
                                     );
                                   })}
                                   {(buildStatuses[repo.id].pipelineDetails
@@ -2980,8 +2990,15 @@ export class HomePage extends React.Component<object, HomePageState> {
                             {prs
                               .filter((pr) => pr && pr.pullRequestId)
                               .map((pr) => (
-                                <div
+                                <a
                                   key={pr.pullRequestId}
+                                  href={(() => {
+                                    const projectInfo = this.getProjectInfo();
+                                    if (!projectInfo?.name) return "#";
+                                    return `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
+                                  })()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                   style={{
                                     backgroundColor: "white",
                                     border: "1px solid #e1e1e1",
@@ -2992,7 +3009,8 @@ export class HomePage extends React.Component<object, HomePageState> {
                                     justifyContent: "space-between",
                                     transition:
                                       "box-shadow 0.2s ease, border-color 0.2s ease",
-                                    cursor: "pointer",
+                                    textDecoration: "none",
+                                    color: "inherit",
                                   }}
                                   onMouseEnter={(e) => {
                                     e.currentTarget.style.boxShadow =
@@ -3004,14 +3022,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                     e.currentTarget.style.boxShadow = "none";
                                     e.currentTarget.style.borderColor =
                                       "#e1e1e1";
-                                  }}
-                                  onClick={() => {
-                                    const projectInfo = this.getProjectInfo();
-
-                                    if (projectInfo?.name) {
-                                      const prUrl = `${this.config.azureDevOpsBaseUrl}/DefaultCollection/${projectInfo.name}/_git/${pr.repository?.name}/pullrequest/${pr.pullRequestId}`;
-                                      this.navigateToUrl(prUrl);
-                                    }
                                   }}
                                 >
                                   <div
@@ -3291,6 +3301,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         iconProps={{ iconName: "PreviewLink" }}
                                         onClick={async (event) => {
                                           event.stopPropagation();
+                                          event.preventDefault();
                                           try {
                                             this.setState({
                                               isReviewLoading: true,
@@ -3328,6 +3339,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                         }}
                                         onClick={(event) => {
                                           event.stopPropagation();
+                                          event.preventDefault();
                                           const repoName = pr.repository?.name;
                                           if (repoName) {
                                             const repo = repos.find(
@@ -3352,7 +3364,7 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       }}
                                     />
                                   </div>
-                                </div>
+                                </a>
                               ))}
                           </div>
                         </div>
