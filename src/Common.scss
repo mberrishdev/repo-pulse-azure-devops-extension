@@ -2,63 +2,75 @@
 
 /* Azure DevOps Typography Standards */
 * {
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", sans-serif;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto",
+    "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-    height: 100%;
-    width: 100%;
-    display: flex;
+  height: 100%;
+  width: 100%;
+  display: flex;
 }
 
 body {
-    background-color: $neutral-2;
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", sans-serif;
-    font-size: 14px;
-    line-height: 1.4;
+  background-color: $neutral-2;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto",
+    "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .page-content {
-    background-color: $neutral-0;
+  background-color: $neutral-0;
 }
 
 /* Typography Classes */
 .title-large {
-    font-size: 24px;
-    font-weight: 600;
-    line-height: 1.3;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .title-medium {
-    font-size: 18px;
-    font-weight: 600;
-    line-height: 1.3;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .title-small {
-    font-size: 16px;
-    font-weight: 600;
-    line-height: 1.4;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .body-medium {
-    font-size: 14px;
-    font-weight: 400;
-    line-height: 1.4;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .body-small {
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 1.3;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
 }
 
 .caption {
-    font-size: 10px;
-    font-weight: 600;
-    line-height: 1.2;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pipeline-grid {
+  @media (min-width: 1310px) {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  @media (max-width: 1309px) {
+    grid-template-columns: 1fr !important;
+  }
 }

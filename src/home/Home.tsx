@@ -42,7 +42,6 @@ interface HomePageState {
   triggeringRepoIds: Set<string>;
   prBuildStatuses: Record<number, PullRequestBuildStatus>;
   loadingPRBuilds: boolean;
-  expandedPipelineRepos: Set<string>;
   reviewPR: GitPullRequest | null;
   hasAcknowledgedReview: boolean;
   isReviewLoading: boolean;
@@ -226,7 +225,6 @@ export class HomePage extends React.Component<object, HomePageState> {
       triggeringRepoIds: new Set<string>(),
       prBuildStatuses: {},
       loadingPRBuilds: false,
-      expandedPipelineRepos: new Set<string>(),
       reviewPR: null,
       hasAcknowledgedReview: false,
       isReviewLoading: false,
@@ -2253,19 +2251,13 @@ export class HomePage extends React.Component<object, HomePageState> {
                                 </div>
                                 <div
                                   style={{
-                                    display: "flex",
-                                    flexDirection: "column",
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(2, 1fr)",
                                     gap: "8px",
                                   }}
+                                  className="pipeline-grid"
                                 >
-                                  {(this.state.expandedPipelineRepos.has(
-                                    repo.id!
-                                  )
-                                    ? buildStatuses[repo.id].pipelineDetails!
-                                    : buildStatuses[
-                                        repo.id
-                                      ].pipelineDetails!.slice(0, 3)
-                                  ).map((pipeline, index) => {
+                                  {buildStatuses[repo.id].pipelineDetails!.map((pipeline, index) => {
                                     const timeAgo = pipeline.lastBuildTime
                                       ? this.getTimeAgo(
                                           new Date(pipeline.lastBuildTime)
@@ -2558,52 +2550,6 @@ export class HomePage extends React.Component<object, HomePageState> {
                                       </div>
                                     );
                                   })}
-                                  {(buildStatuses[repo.id].pipelineDetails
-                                    ?.length ?? 0) > 3 && (
-                                    <div
-                                      style={{
-                                        marginTop: "12px",
-                                        display: "flex",
-                                        justifyContent: "center",
-                                      }}
-                                    >
-                                      <Button
-                                        text={
-                                          this.state.expandedPipelineRepos.has(
-                                            repo.id!
-                                          )
-                                            ? "Show less"
-                                            : "Show more"
-                                        }
-                                        iconProps={{
-                                          iconName:
-                                            this.state.expandedPipelineRepos.has(
-                                              repo.id!
-                                            )
-                                              ? "ChevronUp"
-                                              : "ChevronDown",
-                                        }}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          this.setState((prevState) => {
-                                            const next = new Set(
-                                              prevState.expandedPipelineRepos
-                                            );
-                                            if (repo.id && next.has(repo.id)) {
-                                              next.delete(repo.id);
-                                            } else if (repo.id) {
-                                              next.add(repo.id);
-                                            }
-                                            return {
-                                              expandedPipelineRepos: next,
-                                            } as any;
-                                          });
-                                        }}
-                                        primary={true}
-                                        subtle={false}
-                                      />
-                                    </div>
-                                  )}
                                 </div>
                               </div>
                             )}
